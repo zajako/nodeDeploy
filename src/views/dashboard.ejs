@@ -1,0 +1,191 @@
+<%- include('partials/head') %>
+
+<div class="d-flex flex-column min-vh-100">
+  <%- include('partials/navbar') %>
+  <%- include('partials/flash') %>
+
+  <main class="flex-grow-1 py-4">
+    <div class="container-fluid px-4">
+
+      <!-- Page header -->
+      <div class="d-flex justify-content-between align-items-center mb-4">
+        <div>
+          <h1 class="h3 mb-0 fw-bold">Dashboard</h1>
+          <p class="text-muted mb-0 small">Overview of all deployments</p>
+        </div>
+        <a href="/admin/projects/new" class="btn btn-primary">
+          <i class="bi bi-plus-lg me-1"></i>New Project
+        </a>
+      </div>
+
+      <!-- Stats cards -->
+      <div class="row g-3 mb-4">
+        <div class="col-6 col-md-3">
+          <div class="card border-0 bg-dark-subtle h-100">
+            <div class="card-body">
+              <div class="d-flex align-items-center justify-content-between">
+                <div>
+                  <p class="text-muted small mb-1">Total Projects</p>
+                  <h3 class="fw-bold mb-0"><%= stats.total %></h3>
+                </div>
+                <div class="stat-icon bg-primary-subtle text-primary rounded-3 p-3">
+                  <i class="bi bi-grid-3x3-gap fs-4"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="card border-0 bg-dark-subtle h-100">
+            <div class="card-body">
+              <div class="d-flex align-items-center justify-content-between">
+                <div>
+                  <p class="text-muted small mb-1">Active</p>
+                  <h3 class="fw-bold mb-0 text-success"><%= stats.active %></h3>
+                </div>
+                <div class="stat-icon bg-success-subtle text-success rounded-3 p-3">
+                  <i class="bi bi-check-circle fs-4"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="card border-0 bg-dark-subtle h-100">
+            <div class="card-body">
+              <div class="d-flex align-items-center justify-content-between">
+                <div>
+                  <p class="text-muted small mb-1">Stopped</p>
+                  <h3 class="fw-bold mb-0 text-secondary"><%= stats.stopped %></h3>
+                </div>
+                <div class="stat-icon bg-secondary-subtle text-secondary rounded-3 p-3">
+                  <i class="bi bi-stop-circle fs-4"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="col-6 col-md-3">
+          <div class="card border-0 bg-dark-subtle h-100">
+            <div class="card-body">
+              <div class="d-flex align-items-center justify-content-between">
+                <div>
+                  <p class="text-muted small mb-1">Error</p>
+                  <h3 class="fw-bold mb-0 text-danger"><%= stats.error %></h3>
+                </div>
+                <div class="stat-icon bg-danger-subtle text-danger rounded-3 p-3">
+                  <i class="bi bi-exclamation-triangle fs-4"></i>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div class="row g-4">
+        <!-- Projects quick list -->
+        <div class="col-lg-5">
+          <div class="card border-secondary h-100">
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <h5 class="mb-0"><i class="bi bi-grid-3x3-gap me-2"></i>Projects</h5>
+              <a href="/admin/projects" class="btn btn-sm btn-outline-secondary">View All</a>
+            </div>
+            <div class="card-body p-0">
+              <% if (projects && projects.length > 0) { %>
+              <div class="list-group list-group-flush">
+                <% projects.slice(0, 8).forEach(function(p) { %>
+                <a href="/admin/projects/<%= p.id %>" class="list-group-item list-group-item-action bg-transparent d-flex justify-content-between align-items-center border-secondary py-3">
+                  <div>
+                    <strong><%= p.name %></strong>
+                    <br/>
+                    <small class="text-muted">Port <%= p.port %> &bull; <%= p.branch %></small>
+                  </div>
+                  <% if (p.status === 'active') { %>
+                  <span class="badge bg-success">Active</span>
+                  <% } else if (p.status === 'stopped') { %>
+                  <span class="badge bg-secondary">Stopped</span>
+                  <% } else if (p.status === 'error') { %>
+                  <span class="badge bg-danger">Error</span>
+                  <% } else { %>
+                  <span class="badge bg-warning text-dark">Deploying</span>
+                  <% } %>
+                </a>
+                <% }); %>
+              </div>
+              <% } else { %>
+              <div class="text-center py-5 text-muted">
+                <i class="bi bi-folder2-open display-6 d-block mb-3"></i>
+                <p class="mb-2">No projects yet.</p>
+                <a href="/admin/projects/new" class="btn btn-primary btn-sm">Deploy your first app</a>
+              </div>
+              <% } %>
+            </div>
+          </div>
+        </div>
+
+        <!-- Recent deploy logs -->
+        <div class="col-lg-7">
+          <div class="card border-secondary h-100">
+            <div class="card-header">
+              <h5 class="mb-0"><i class="bi bi-journal-text me-2"></i>Recent Activity</h5>
+            </div>
+            <div class="card-body p-0">
+              <% if (recentLogs && recentLogs.length > 0) { %>
+              <div class="table-responsive">
+                <table class="table table-dark table-hover table-sm mb-0">
+                  <thead>
+                    <tr>
+                      <th class="ps-3">Time</th>
+                      <th>Project</th>
+                      <th>Type</th>
+                      <th>Message</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    <% recentLogs.forEach(function(log) { %>
+                    <tr>
+                      <td class="ps-3 text-muted small text-nowrap">
+                        <%= new Date(log.created_at).toLocaleString() %>
+                      </td>
+                      <td class="small">
+                        <% if (log.project_name) { %>
+                        <span class="text-primary"><%= log.project_name %></span>
+                        <% } else { %>
+                        <span class="text-muted">—</span>
+                        <% } %>
+                      </td>
+                      <td>
+                        <% if (log.log_type === 'deploy') { %>
+                        <span class="badge bg-primary-subtle text-primary-emphasis">deploy</span>
+                        <% } else if (log.log_type === 'error') { %>
+                        <span class="badge bg-danger-subtle text-danger-emphasis">error</span>
+                        <% } else if (log.log_type === 'webhook') { %>
+                        <span class="badge bg-info-subtle text-info-emphasis">webhook</span>
+                        <% } else { %>
+                        <span class="badge bg-secondary-subtle text-secondary-emphasis">info</span>
+                        <% } %>
+                      </td>
+                      <td class="small text-truncate" style="max-width:300px">
+                        <%= log.message %>
+                      </td>
+                    </tr>
+                    <% }); %>
+                  </tbody>
+                </table>
+              </div>
+              <% } else { %>
+              <div class="text-center py-5 text-muted">
+                <i class="bi bi-journal display-6 d-block mb-2"></i>
+                <p>No activity yet.</p>
+              </div>
+              <% } %>
+            </div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+  </main>
+
+  <%- include('partials/footer') %>
+</div>

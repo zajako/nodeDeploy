@@ -1,0 +1,183 @@
+<%- include('../partials/head') %>
+
+<div class="d-flex flex-column min-vh-100">
+  <%- include('../partials/navbar') %>
+  <%- include('../partials/flash') %>
+
+  <main class="flex-grow-1 py-4">
+    <div class="container px-4" style="max-width:800px">
+
+      <div class="mb-4">
+        <a href="/admin/projects" class="btn btn-sm btn-outline-secondary mb-3">
+          <i class="bi bi-arrow-left me-1"></i>Back to Projects
+        </a>
+        <h1 class="h3 fw-bold mb-0">New Project</h1>
+        <p class="text-muted mb-0 small">Deploy a Node.js app from a GitHub repository</p>
+      </div>
+
+      <form action="/admin/projects" method="POST" id="newProjectForm">
+        <!-- Basic Info -->
+        <div class="card border-secondary mb-4">
+          <div class="card-header">
+            <h5 class="mb-0"><i class="bi bi-info-circle me-2"></i>Project Details</h5>
+          </div>
+          <div class="card-body">
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label for="name" class="form-label">Project Name <span class="text-danger">*</span></label>
+                <input type="text" class="form-control bg-dark border-secondary text-light" id="name" name="name"
+                  placeholder="my-app" required pattern="[a-zA-Z0-9_\-]{2,50}"
+                  title="2-50 characters: letters, numbers, hyphens, underscores only" />
+                <div class="form-text">Will be served at: <code>/<span id="namePreview">project-name</span></code></div>
+              </div>
+
+              <div class="col-md-6">
+                <label for="branch" class="form-label">Branch</label>
+                <input type="text" class="form-control bg-dark border-secondary text-light" id="branch" name="branch"
+                  value="main" placeholder="main" />
+                <div class="form-text">Git branch to deploy from</div>
+              </div>
+
+              <div class="col-12">
+                <label for="repo_url" class="form-label">GitHub Repository URL <span class="text-danger">*</span></label>
+                <input type="text" class="form-control bg-dark border-secondary text-light" id="repo_url" name="repo_url"
+                  placeholder="https://github.com/owner/repo" required />
+                <div class="form-text">HTTPS or SSH format both supported</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Commands -->
+        <div class="card border-secondary mb-4">
+          <div class="card-header">
+            <h5 class="mb-0"><i class="bi bi-terminal me-2"></i>Commands</h5>
+          </div>
+          <div class="card-body">
+            <div class="row g-3">
+              <div class="col-md-6">
+                <label for="start_command" class="form-label">Start Command</label>
+                <input type="text" class="form-control bg-dark border-secondary text-light" id="start_command"
+                  name="start_command" value="npm start" placeholder="npm start" />
+                <div class="form-text">Command to start your application</div>
+              </div>
+              <div class="col-md-6">
+                <label for="build_command" class="form-label">Build Command <span class="text-muted">(optional)</span></label>
+                <input type="text" class="form-control bg-dark border-secondary text-light" id="build_command"
+                  name="build_command" placeholder="npm run build" />
+                <div class="form-text">Run after npm install (e.g., for transpiling)</div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Database -->
+        <div class="card border-secondary mb-4">
+          <div class="card-header d-flex align-items-center gap-3">
+            <h5 class="mb-0"><i class="bi bi-database me-2"></i>Database</h5>
+            <div class="form-check form-switch mb-0 ms-auto">
+              <input class="form-check-input" type="checkbox" id="link_db" name="link_db" />
+              <label class="form-check-label" for="link_db">Link MySQL Database</label>
+            </div>
+          </div>
+          <div class="card-body" id="dbFields" style="display:none">
+            <p class="text-muted small mb-3">These credentials will be injected into the app's <code>.env</code> file as <code>DB_*</code> variables.</p>
+            <div class="row g-3">
+              <div class="col-md-4">
+                <label for="db_name" class="form-label">Database Name</label>
+                <input type="text" class="form-control bg-dark border-secondary text-light" id="db_name" name="db_name" placeholder="myapp_db" />
+              </div>
+              <div class="col-md-4">
+                <label for="db_user" class="form-label">Database User</label>
+                <input type="text" class="form-control bg-dark border-secondary text-light" id="db_user" name="db_user" placeholder="myapp_user" />
+              </div>
+              <div class="col-md-4">
+                <label for="db_password" class="form-label">Database Password</label>
+                <input type="password" class="form-control bg-dark border-secondary text-light" id="db_password" name="db_password" placeholder="••••••••" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Environment Variables -->
+        <div class="card border-secondary mb-4">
+          <div class="card-header d-flex justify-content-between align-items-center">
+            <h5 class="mb-0"><i class="bi bi-key me-2"></i>Environment Variables</h5>
+            <button type="button" class="btn btn-sm btn-outline-secondary" id="addEnvVar">
+              <i class="bi bi-plus-lg me-1"></i>Add Variable
+            </button>
+          </div>
+          <div class="card-body">
+            <p class="text-muted small mb-3">Custom variables injected into the app's <code>.env</code> file. PORT is automatically set.</p>
+            <div id="envVarsList">
+              <!-- Env var rows added dynamically -->
+            </div>
+            <div id="envVarsEmpty" class="text-muted small text-center py-3">
+              <i class="bi bi-key me-1"></i>No custom environment variables. Click "Add Variable" to add one.
+            </div>
+          </div>
+        </div>
+
+        <!-- Submit -->
+        <div class="d-flex gap-3 justify-content-end">
+          <a href="/admin/projects" class="btn btn-outline-secondary">Cancel</a>
+          <button type="submit" class="btn btn-primary px-4">
+            <i class="bi bi-rocket-takeoff me-2"></i>Deploy Project
+          </button>
+        </div>
+      </form>
+
+    </div>
+  </main>
+
+  <%- include('../partials/footer') %>
+</div>
+
+<script>
+  // Live preview of project URL slug
+  document.getElementById('name').addEventListener('input', function() {
+    document.getElementById('namePreview').textContent = this.value || 'project-name';
+  });
+
+  // Toggle DB fields
+  document.getElementById('link_db').addEventListener('change', function() {
+    document.getElementById('dbFields').style.display = this.checked ? 'block' : 'none';
+  });
+
+  // Dynamic env var rows
+  let envVarCount = 0;
+  const envVarsList = document.getElementById('envVarsList');
+  const envVarsEmpty = document.getElementById('envVarsEmpty');
+
+  function updateEmptyState() {
+    const rows = envVarsList.querySelectorAll('.env-var-row');
+    envVarsEmpty.style.display = rows.length === 0 ? 'block' : 'none';
+  }
+
+  document.getElementById('addEnvVar').addEventListener('click', function() {
+    envVarCount++;
+    const row = document.createElement('div');
+    row.className = 'env-var-row row g-2 mb-2 align-items-center';
+    row.innerHTML = `
+      <div class="col-5">
+        <input type="text" class="form-control form-control-sm bg-dark border-secondary text-light"
+          name="env_keys" placeholder="VARIABLE_NAME" />
+      </div>
+      <div class="col-6">
+        <input type="text" class="form-control form-control-sm bg-dark border-secondary text-light"
+          name="env_values" placeholder="value" />
+      </div>
+      <div class="col-1">
+        <button type="button" class="btn btn-sm btn-outline-danger remove-env-var">
+          <i class="bi bi-trash"></i>
+        </button>
+      </div>
+    `;
+    row.querySelector('.remove-env-var').addEventListener('click', function() {
+      row.remove();
+      updateEmptyState();
+    });
+    envVarsList.appendChild(row);
+    updateEmptyState();
+  });
+</script>

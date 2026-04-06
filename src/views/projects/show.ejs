@@ -1,0 +1,362 @@
+<%- include('../partials/head') %>
+
+<div class="d-flex flex-column min-vh-100">
+  <%- include('../partials/navbar') %>
+  <%- include('../partials/flash') %>
+
+  <main class="flex-grow-1 py-4">
+    <div class="container-fluid px-4">
+
+      <!-- Header -->
+      <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-4">
+        <div>
+          <a href="/admin/projects" class="btn btn-sm btn-outline-secondary mb-2">
+            <i class="bi bi-arrow-left me-1"></i>Back
+          </a>
+          <div class="d-flex align-items-center gap-3">
+            <h1 class="h3 fw-bold mb-0"><%= project.name %></h1>
+            <% if (project.status === 'active') { %>
+            <span class="badge bg-success fs-6"><i class="bi bi-circle-fill me-1" style="font-size:.5rem"></i>Active</span>
+            <% } else if (project.status === 'stopped') { %>
+            <span class="badge bg-secondary fs-6">Stopped</span>
+            <% } else if (project.status === 'error') { %>
+            <span class="badge bg-danger fs-6">Error</span>
+            <% } else { %>
+            <span class="badge bg-warning text-dark fs-6"><i class="bi bi-arrow-repeat me-1"></i>Deploying</span>
+            <% } %>
+          </div>
+          <% if (project.status === 'active') { %>
+          <a href="/<%= project.name %>" target="_blank" class="text-muted small">
+            npmdeploy.com/<%= project.name %> <i class="bi bi-box-arrow-up-right ms-1"></i>
+          </a>
+          <% } %>
+        </div>
+
+        <!-- Action buttons -->
+        <div class="d-flex flex-wrap gap-2">
+          <form action="/admin/projects/<%= project.id %>/deploy" method="POST">
+            <button type="submit" class="btn btn-primary btn-sm">
+              <i class="bi bi-rocket-takeoff me-1"></i>Deploy
+            </button>
+          </form>
+          <form action="/admin/projects/<%= project.id %>/restart" method="POST">
+            <button type="submit" class="btn btn-outline-info btn-sm">
+              <i class="bi bi-arrow-repeat me-1"></i>Restart
+            </button>
+          </form>
+          <% if (project.status === 'active' || project.status === 'error') { %>
+          <form action="/admin/projects/<%= project.id %>/stop" method="POST">
+            <button type="submit" class="btn btn-outline-warning btn-sm">
+              <i class="bi bi-stop-circle me-1"></i>Stop
+            </button>
+          </form>
+          <% } else { %>
+          <form action="/admin/projects/<%= project.id %>/start" method="POST">
+            <button type="submit" class="btn btn-outline-success btn-sm">
+              <i class="bi bi-play-circle me-1"></i>Start
+            </button>
+          </form>
+          <% } %>
+          <a href="/admin/projects/<%= project.id %>/edit" class="btn btn-outline-secondary btn-sm">
+            <i class="bi bi-pencil me-1"></i>Edit
+          </a>
+          <button type="button" class="btn btn-outline-danger btn-sm" data-bs-toggle="modal" data-bs-target="#deleteModal">
+            <i class="bi bi-trash me-1"></i>Delete
+          </button>
+        </div>
+      </div>
+
+      <!-- Tabs -->
+      <ul class="nav nav-tabs mb-4 border-secondary" id="projectTabs">
+        <li class="nav-item">
+          <button class="nav-link active" data-bs-toggle="tab" data-bs-target="#overviewTab">
+            <i class="bi bi-info-circle me-1"></i>Overview
+          </button>
+        </li>
+        <li class="nav-item">
+          <button class="nav-link" data-bs-toggle="tab" data-bs-target="#envTab">
+            <i class="bi bi-key me-1"></i>Environment
+          </button>
+        </li>
+        <li class="nav-item">
+          <button class="nav-link" data-bs-toggle="tab" data-bs-target="#logsTab" id="logsTabBtn">
+            <i class="bi bi-journal-text me-1"></i>Logs
+          </button>
+        </li>
+      </ul>
+
+      <div class="tab-content">
+
+        <!-- Overview Tab -->
+        <div class="tab-pane fade show active" id="overviewTab">
+          <div class="row g-4">
+            <div class="col-md-6">
+              <div class="card border-secondary h-100">
+                <div class="card-header"><h6 class="mb-0">Repository</h6></div>
+                <div class="card-body">
+                  <dl class="row mb-0">
+                    <dt class="col-sm-4 text-muted">URL</dt>
+                    <dd class="col-sm-8">
+                      <a href="<%= project.repo_url %>" target="_blank" class="text-break small">
+                        <%= project.repo_url %> <i class="bi bi-box-arrow-up-right ms-1"></i>
+                      </a>
+                    </dd>
+                    <dt class="col-sm-4 text-muted">Branch</dt>
+                    <dd class="col-sm-8"><span class="badge bg-dark border border-secondary"><%= project.branch %></span></dd>
+                    <% if (project.repo_owner) { %>
+                    <dt class="col-sm-4 text-muted">Owner</dt>
+                    <dd class="col-sm-8 small"><%= project.repo_owner %></dd>
+                    <% } %>
+                  </dl>
+                </div>
+              </div>
+            </div>
+            <div class="col-md-6">
+              <div class="card border-secondary h-100">
+                <div class="card-header"><h6 class="mb-0">Deployment</h6></div>
+                <div class="card-body">
+                  <dl class="row mb-0">
+                    <dt class="col-sm-4 text-muted">Port</dt>
+                    <dd class="col-sm-8"><code><%= project.port %></code></dd>
+                    <dt class="col-sm-4 text-muted">Path</dt>
+                    <dd class="col-sm-8"><code class="small text-break"><%= project.deploy_path %></code></dd>
+                    <dt class="col-sm-4 text-muted">Start</dt>
+                    <dd class="col-sm-8"><code class="small"><%= project.start_command %></code></dd>
+                    <% if (project.build_command) { %>
+                    <dt class="col-sm-4 text-muted">Build</dt>
+                    <dd class="col-sm-8"><code class="small"><%= project.build_command %></code></dd>
+                    <% } %>
+                    <dt class="col-sm-4 text-muted">Deployed</dt>
+                    <dd class="col-sm-8 small">
+                      <% if (project.last_deployed) { %>
+                      <%= new Date(project.last_deployed).toLocaleString() %>
+                      <% } else { %>
+                      <span class="text-muted">Never</span>
+                      <% } %>
+                    </dd>
+                  </dl>
+                </div>
+              </div>
+            </div>
+            <% if (project.webhook_id) { %>
+            <div class="col-12">
+              <div class="card border-secondary">
+                <div class="card-header"><h6 class="mb-0">GitHub Webhook</h6></div>
+                <div class="card-body">
+                  <dl class="row mb-0">
+                    <dt class="col-sm-3 text-muted">Webhook ID</dt>
+                    <dd class="col-sm-9 small"><%= project.webhook_id %></dd>
+                    <dt class="col-sm-3 text-muted">Endpoint</dt>
+                    <dd class="col-sm-9"><code class="small">/webhook/<%= project.name %></code></dd>
+                  </dl>
+                </div>
+              </div>
+            </div>
+            <% } %>
+          </div>
+        </div>
+
+        <!-- Environment Tab -->
+        <div class="tab-pane fade" id="envTab">
+          <div class="row g-4">
+            <% if (dbInfo) { %>
+            <div class="col-md-6">
+              <div class="card border-secondary">
+                <div class="card-header"><h6 class="mb-0"><i class="bi bi-database me-1"></i>Database Credentials</h6></div>
+                <div class="card-body">
+                  <dl class="row mb-0">
+                    <dt class="col-sm-4 text-muted">DB Name</dt>
+                    <dd class="col-sm-8 small"><code><%= dbInfo.db_name %></code></dd>
+                    <dt class="col-sm-4 text-muted">User</dt>
+                    <dd class="col-sm-8 small"><code><%= dbInfo.db_user %></code></dd>
+                    <dt class="col-sm-4 text-muted">Password</dt>
+                    <dd class="col-sm-8 small"><code>••••••••</code></dd>
+                    <dt class="col-sm-4 text-muted">Host</dt>
+                    <dd class="col-sm-8 small"><code><%= dbInfo.db_host %>:<%= dbInfo.db_port %></code></dd>
+                  </dl>
+                </div>
+              </div>
+            </div>
+            <% } %>
+            <div class="<%= dbInfo ? 'col-md-6' : 'col-12' %>">
+              <div class="card border-secondary">
+                <div class="card-header"><h6 class="mb-0"><i class="bi bi-key me-1"></i>Custom Environment Variables</h6></div>
+                <div class="card-body p-0">
+                  <% if (envVars && envVars.length > 0) { %>
+                  <table class="table table-dark table-sm mb-0">
+                    <thead>
+                      <tr>
+                        <th class="ps-3">Key</th>
+                        <th>Value</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <% envVars.forEach(function(ev) { %>
+                      <tr>
+                        <td class="ps-3"><code><%= ev.key_name %></code></td>
+                        <td><span class="text-muted">••••••••</span></td>
+                      </tr>
+                      <% }); %>
+                    </tbody>
+                  </table>
+                  <% } else { %>
+                  <div class="text-center text-muted py-4 small">No custom environment variables configured.</div>
+                  <% } %>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Logs Tab -->
+        <div class="tab-pane fade" id="logsTab">
+          <div class="card border-secondary">
+            <div class="card-header d-flex justify-content-between align-items-center">
+              <h6 class="mb-0"><i class="bi bi-journal-text me-1"></i>Deploy Logs</h6>
+              <span class="text-muted small" id="logsLastUpdated">Auto-refreshes every 10s</span>
+            </div>
+            <div class="card-body p-0">
+              <div id="logsContainer">
+                <% if (logs && logs.length > 0) { %>
+                <table class="table table-dark table-sm mb-0" id="logsTable">
+                  <thead>
+                    <tr>
+                      <th class="ps-3">Time</th>
+                      <th>Type</th>
+                      <th>Message</th>
+                    </tr>
+                  </thead>
+                  <tbody id="logsBody">
+                    <% logs.forEach(function(log) { %>
+                    <tr>
+                      <td class="ps-3 text-muted small text-nowrap"><%= new Date(log.created_at).toLocaleString() %></td>
+                      <td>
+                        <% if (log.log_type === 'deploy') { %>
+                        <span class="badge bg-primary-subtle text-primary-emphasis">deploy</span>
+                        <% } else if (log.log_type === 'error') { %>
+                        <span class="badge bg-danger-subtle text-danger-emphasis">error</span>
+                        <% } else if (log.log_type === 'webhook') { %>
+                        <span class="badge bg-info-subtle text-info-emphasis">webhook</span>
+                        <% } else { %>
+                        <span class="badge bg-secondary-subtle text-secondary-emphasis">info</span>
+                        <% } %>
+                      </td>
+                      <td class="small"><%= log.message %></td>
+                    </tr>
+                    <% }); %>
+                  </tbody>
+                </table>
+                <% } else { %>
+                <div class="text-center text-muted py-5" id="noLogsMsg">
+                  <i class="bi bi-journal display-6 d-block mb-2"></i>No logs yet.
+                </div>
+                <% } %>
+              </div>
+            </div>
+          </div>
+        </div>
+
+      </div><!-- /tab-content -->
+
+    </div>
+  </main>
+
+  <%- include('../partials/footer') %>
+</div>
+
+<!-- Delete modal -->
+<div class="modal fade" id="deleteModal" tabindex="-1">
+  <div class="modal-dialog">
+    <div class="modal-content bg-dark border-secondary">
+      <div class="modal-header border-secondary">
+        <h5 class="modal-title text-danger"><i class="bi bi-exclamation-triangle me-2"></i>Delete Project</h5>
+        <button type="button" class="btn-close btn-close-white" data-bs-dismiss="modal"></button>
+      </div>
+      <div class="modal-body">
+        <p>Are you sure you want to delete <strong><%= project.name %></strong>? This action cannot be undone.</p>
+        <form action="/admin/projects/<%= project.id %>?_method=DELETE" method="POST" id="deleteForm">
+          <div class="form-check mb-3">
+            <input class="form-check-input" type="checkbox" id="delete_files" name="delete_files" value="on" />
+            <label class="form-check-label" for="delete_files">
+              Also delete files from disk (<code><%= project.deploy_path %></code>)
+            </label>
+          </div>
+          <div class="d-flex gap-2 justify-content-end">
+            <button type="button" class="btn btn-secondary" data-bs-dismiss="modal">Cancel</button>
+            <button type="submit" class="btn btn-danger">
+              <i class="bi bi-trash me-1"></i>Delete Project
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // Auto-refresh logs every 10 seconds when logs tab is active
+  let logsInterval = null;
+  const projectId = '<%= project.id %>';
+
+  function renderLogBadge(logType) {
+    const badges = {
+      deploy: '<span class="badge bg-primary-subtle text-primary-emphasis">deploy</span>',
+      error: '<span class="badge bg-danger-subtle text-danger-emphasis">error</span>',
+      webhook: '<span class="badge bg-info-subtle text-info-emphasis">webhook</span>',
+      info: '<span class="badge bg-secondary-subtle text-secondary-emphasis">info</span>'
+    };
+    return badges[logType] || badges.info;
+  }
+
+  async function fetchLogs() {
+    try {
+      const res = await fetch(`/admin/projects/${projectId}/logs`);
+      const data = await res.json();
+      const logs = data.logs || [];
+
+      document.getElementById('logsLastUpdated').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+
+      let tbody = document.getElementById('logsBody');
+      const container = document.getElementById('logsContainer');
+
+      if (logs.length === 0) {
+        container.innerHTML = '<div class="text-center text-muted py-5"><i class="bi bi-journal display-6 d-block mb-2"></i>No logs yet.</div>';
+        return;
+      }
+
+      if (!tbody) {
+        container.innerHTML = `<table class="table table-dark table-sm mb-0"><thead><tr>
+          <th class="ps-3">Time</th><th>Type</th><th>Message</th>
+          </tr></thead><tbody id="logsBody"></tbody></table>`;
+        tbody = document.getElementById('logsBody');
+      }
+
+      tbody.innerHTML = logs.map(log => `
+        <tr>
+          <td class="ps-3 text-muted small text-nowrap">${new Date(log.created_at).toLocaleString()}</td>
+          <td>${renderLogBadge(log.log_type)}</td>
+          <td class="small">${log.message ? log.message.replace(/</g,'&lt;').replace(/>/g,'&gt;') : ''}</td>
+        </tr>
+      `).join('');
+    } catch (err) {
+      console.error('Failed to fetch logs:', err);
+    }
+  }
+
+  document.getElementById('logsTabBtn').addEventListener('click', function() {
+    fetchLogs();
+    if (!logsInterval) {
+      logsInterval = setInterval(fetchLogs, 10000);
+    }
+  });
+
+  // Stop polling when leaving logs tab
+  document.querySelectorAll('[data-bs-toggle="tab"]').forEach(function(tab) {
+    tab.addEventListener('click', function() {
+      if (this.id !== 'logsTabBtn' && logsInterval) {
+        clearInterval(logsInterval);
+        logsInterval = null;
+      }
+    });
+  });
+</script>

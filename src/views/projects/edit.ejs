@@ -1,0 +1,69 @@
+<%- include('../partials/head') %>
+
+<div class="d-flex flex-column min-vh-100">
+  <%- include('../partials/navbar') %>
+  <%- include('../partials/flash') %>
+
+  <main class="flex-grow-1 py-4">
+    <div class="container px-4" style="max-width:700px">
+
+      <div class="mb-4">
+        <a href="/admin/projects/<%= project.id %>" class="btn btn-sm btn-outline-secondary mb-3">
+          <i class="bi bi-arrow-left me-1"></i>Back to <%= project.name %>
+        </a>
+        <h1 class="h3 fw-bold mb-0">Edit Project</h1>
+        <p class="text-muted mb-0 small">Update deployment settings for <strong><%= project.name %></strong></p>
+      </div>
+
+      <form action="/admin/projects/<%= project.id %>" method="POST">
+        <div class="card border-secondary mb-4">
+          <div class="card-header">
+            <h5 class="mb-0"><i class="bi bi-gear me-2"></i>Project Settings</h5>
+          </div>
+          <div class="card-body">
+            <div class="row g-3">
+              <div class="col-12">
+                <label class="form-label text-muted">Project Name</label>
+                <input type="text" class="form-control bg-dark border-secondary text-muted" value="<%= project.name %>" disabled />
+                <div class="form-text">Project name cannot be changed after creation.</div>
+              </div>
+
+              <div class="col-md-6">
+                <label for="branch" class="form-label">Branch</label>
+                <input type="text" class="form-control bg-dark border-secondary text-light" id="branch" name="branch"
+                  value="<%= project.branch %>" placeholder="main" required />
+              </div>
+
+              <div class="col-md-6">
+                <label for="start_command" class="form-label">Start Command</label>
+                <input type="text" class="form-control bg-dark border-secondary text-light" id="start_command"
+                  name="start_command" value="<%= project.start_command %>" placeholder="npm start" required />
+              </div>
+
+              <div class="col-12">
+                <label for="build_command" class="form-label">Build Command <span class="text-muted">(optional)</span></label>
+                <input type="text" class="form-control bg-dark border-secondary text-light" id="build_command"
+                  name="build_command" value="<%= project.build_command || '' %>" placeholder="npm run build" />
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="alert alert-info border-info">
+          <i class="bi bi-info-circle me-2"></i>
+          After saving, click <strong>Deploy</strong> on the project page to apply changes.
+        </div>
+
+        <div class="d-flex gap-3 justify-content-end">
+          <a href="/admin/projects/<%= project.id %>" class="btn btn-outline-secondary">Cancel</a>
+          <button type="submit" class="btn btn-primary px-4">
+            <i class="bi bi-save me-1"></i>Save Changes
+          </button>
+        </div>
+      </form>
+
+    </div>
+  </main>
+
+  <%- include('../partials/footer') %>
+</div>
