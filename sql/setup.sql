@@ -77,9 +77,9 @@ CREATE TABLE IF NOT EXISTS deploy_logs (
 ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci;
 
 -- ---- Indexes for common queries ----
-CREATE INDEX IF NOT EXISTS idx_projects_status    ON projects(status);
-CREATE INDEX IF NOT EXISTS idx_deploy_logs_project ON deploy_logs(project_id, created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_project_env_project ON project_env_vars(project_id);
+CREATE INDEX idx_projects_status     ON projects(status);
+CREATE INDEX idx_deploy_logs_project ON deploy_logs(project_id, created_at);
+CREATE INDEX idx_project_env_project ON project_env_vars(project_id);
 
 -- ============================================================
 -- Create application user (run as root, adjust password)
