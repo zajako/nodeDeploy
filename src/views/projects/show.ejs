@@ -211,14 +211,22 @@
         <!-- Logs Tab -->
         <div class="tab-pane fade" id="logsTab">
           <div class="card border-secondary">
-            <div class="card-header d-flex justify-content-between align-items-center">
+            <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
               <h6 class="mb-0"><i class="bi bi-journal-text me-1"></i>Deploy Logs</h6>
-              <span class="text-muted small" id="logsLastUpdated">Auto-refreshes every 10s</span>
+              <div class="d-flex align-items-center gap-2">
+                <span class="text-muted small" id="logsStatus">–</span>
+                <button id="btnRefreshNow" class="btn btn-sm btn-outline-secondary py-0 px-2" title="Refresh now">
+                  <i class="bi bi-arrow-clockwise"></i>
+                </button>
+                <button id="btnToggleAuto" class="btn btn-sm btn-success py-0 px-2" title="Auto-refresh on">
+                  <i class="bi bi-pause-fill me-1"></i>Auto
+                </button>
+              </div>
             </div>
             <div class="card-body p-0">
               <div id="logsContainer">
                 <% if (logs && logs.length > 0) { %>
-                <table class="table table-dark table-sm mb-0" id="logsTable">
+                <table class="table table-dark table-sm mb-0">
                   <thead>
                     <tr>
                       <th class="ps-3">Time</th>
@@ -247,7 +255,7 @@
                   </tbody>
                 </table>
                 <% } else { %>
-                <div class="text-center text-muted py-5" id="noLogsMsg">
+                <div class="text-center text-muted py-5">
                   <i class="bi bi-journal display-6 d-block mb-2"></i>No logs yet.
                 </div>
                 <% } %>
@@ -294,69 +302,147 @@
 </div>
 
 <script>
-  // Auto-refresh logs every 10 seconds when logs tab is active
-  let logsInterval = null;
-  const projectId = '<%= project.id %>';
+(function () {
+  const PROJECT_ID   = '<%= project.id %>';
+  const INTERVAL_MS  = 5000;   // auto-refresh every 5 s
+  const STATUS_EL    = document.getElementById('logsStatus');
+  const TOGGLE_BTN   = document.getElementById('btnToggleAuto');
+  const REFRESH_BTN  = document.getElementById('btnRefreshNow');
 
-  function renderLogBadge(logType) {
-    const badges = {
-      deploy: '<span class="badge bg-primary-subtle text-primary-emphasis">deploy</span>',
-      error: '<span class="badge bg-danger-subtle text-danger-emphasis">error</span>',
-      webhook: '<span class="badge bg-info-subtle text-info-emphasis">webhook</span>',
-      info: '<span class="badge bg-secondary-subtle text-secondary-emphasis">info</span>'
+  let autoEnabled    = true;
+  let logsTabActive  = false;
+  let timer          = null;   // setInterval handle
+  let countdown      = INTERVAL_MS / 1000;
+  let countdownTimer = null;
+
+  // ── Badge helper ─────────────────────────────────────────────
+  function badge(type) {
+    const map = {
+      deploy:  'bg-primary-subtle text-primary-emphasis',
+      error:   'bg-danger-subtle text-danger-emphasis',
+      webhook: 'bg-info-subtle text-info-emphasis',
+      info:    'bg-secondary-subtle text-secondary-emphasis'
     };
-    return badges[logType] || badges.info;
+    const cls = map[type] || map.info;
+    return `<span class="badge ${cls}">${type || 'info'}</span>`;
   }
 
+  function esc(str) {
+    return str ? String(str).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;') : '';
+  }
+
+  // ── Render logs into the DOM ──────────────────────────────────
+  function renderLogs(logs) {
+    const container = document.getElementById('logsContainer');
+    if (!logs.length) {
+      container.innerHTML = '<div class="text-center text-muted py-5"><i class="bi bi-journal display-6 d-block mb-2"></i>No logs yet.</div>';
+      return;
+    }
+    let tbody = document.getElementById('logsBody');
+    if (!tbody) {
+      container.innerHTML = `<table class="table table-dark table-sm mb-0">
+        <thead><tr><th class="ps-3">Time</th><th>Type</th><th>Message</th></tr></thead>
+        <tbody id="logsBody"></tbody></table>`;
+      tbody = document.getElementById('logsBody');
+    }
+    tbody.innerHTML = logs.map(l => `
+      <tr>
+        <td class="ps-3 text-muted small text-nowrap">${new Date(l.created_at).toLocaleString()}</td>
+        <td>${badge(l.log_type)}</td>
+        <td class="small">${esc(l.message)}</td>
+      </tr>`).join('');
+  }
+
+  // ── Fetch from API ────────────────────────────────────────────
   async function fetchLogs() {
     try {
-      const res = await fetch(`/admin/projects/${projectId}/logs`);
+      const res  = await fetch(`/admin/projects/${PROJECT_ID}/logs`);
       const data = await res.json();
-      const logs = data.logs || [];
-
-      document.getElementById('logsLastUpdated').textContent = 'Updated: ' + new Date().toLocaleTimeString();
-
-      let tbody = document.getElementById('logsBody');
-      const container = document.getElementById('logsContainer');
-
-      if (logs.length === 0) {
-        container.innerHTML = '<div class="text-center text-muted py-5"><i class="bi bi-journal display-6 d-block mb-2"></i>No logs yet.</div>';
-        return;
-      }
-
-      if (!tbody) {
-        container.innerHTML = `<table class="table table-dark table-sm mb-0"><thead><tr>
-          <th class="ps-3">Time</th><th>Type</th><th>Message</th>
-          </tr></thead><tbody id="logsBody"></tbody></table>`;
-        tbody = document.getElementById('logsBody');
-      }
-
-      tbody.innerHTML = logs.map(log => `
-        <tr>
-          <td class="ps-3 text-muted small text-nowrap">${new Date(log.created_at).toLocaleString()}</td>
-          <td>${renderLogBadge(log.log_type)}</td>
-          <td class="small">${log.message ? log.message.replace(/</g,'&lt;').replace(/>/g,'&gt;') : ''}</td>
-        </tr>
-      `).join('');
-    } catch (err) {
-      console.error('Failed to fetch logs:', err);
+      renderLogs(data.logs || []);
+      STATUS_EL.textContent = 'Updated ' + new Date().toLocaleTimeString();
+    } catch (e) {
+      STATUS_EL.textContent = 'Fetch failed – ' + new Date().toLocaleTimeString();
     }
   }
 
-  document.getElementById('logsTabBtn').addEventListener('click', function() {
+  // ── Countdown ticker shown in status bar ─────────────────────
+  function startCountdown() {
+    clearInterval(countdownTimer);
+    countdown = INTERVAL_MS / 1000;
+    countdownTimer = setInterval(() => {
+      countdown--;
+      if (countdown > 0) STATUS_EL.textContent = `Refreshing in ${countdown}s`;
+    }, 1000);
+  }
+
+  // ── Auto-refresh loop ─────────────────────────────────────────
+  function startAuto() {
+    if (timer) return;
     fetchLogs();
-    if (!logsInterval) {
-      logsInterval = setInterval(fetchLogs, 10000);
+    startCountdown();
+    timer = setInterval(() => {
+      fetchLogs();
+      startCountdown();
+    }, INTERVAL_MS);
+  }
+
+  function stopAuto() {
+    clearInterval(timer);
+    clearInterval(countdownTimer);
+    timer = null;
+  }
+
+  // ── Toggle button ─────────────────────────────────────────────
+  TOGGLE_BTN.addEventListener('click', () => {
+    autoEnabled = !autoEnabled;
+    if (autoEnabled) {
+      TOGGLE_BTN.className = 'btn btn-sm btn-success py-0 px-2';
+      TOGGLE_BTN.innerHTML = '<i class="bi bi-pause-fill me-1"></i>Auto';
+      if (logsTabActive) startAuto();
+    } else {
+      TOGGLE_BTN.className = 'btn btn-sm btn-outline-secondary py-0 px-2';
+      TOGGLE_BTN.innerHTML = '<i class="bi bi-play-fill me-1"></i>Manual';
+      STATUS_EL.textContent = 'Auto-refresh paused';
+      stopAuto();
     }
   });
 
-  // Stop polling when leaving logs tab
-  document.querySelectorAll('[data-bs-toggle="tab"]').forEach(function(tab) {
-    tab.addEventListener('click', function() {
-      if (this.id !== 'logsTabBtn' && logsInterval) {
-        clearInterval(logsInterval);
-        logsInterval = null;
+  // ── Manual refresh button ─────────────────────────────────────
+  REFRESH_BTN.addEventListener('click', () => {
+    STATUS_EL.textContent = 'Refreshing…';
+    fetchLogs().then(() => {
+      // Reset countdown if auto is running
+      if (autoEnabled && logsTabActive) {
+        stopAuto();
+        startAuto();
       }
     });
   });
+
+  // ── Pause when browser tab is hidden, resume on focus ─────────
+  document.addEventListener('visibilitychange', () => {
+    if (!logsTabActive) return;
+    if (document.hidden) {
+      stopAuto();
+    } else if (autoEnabled) {
+      startAuto();
+    }
+  });
+
+  // ── Activate / deactivate with the Logs nav-tab ───────────────
+  document.getElementById('logsTabBtn').addEventListener('click', () => {
+    logsTabActive = true;
+    if (autoEnabled && !document.hidden) startAuto();
+  });
+
+  document.querySelectorAll('[data-bs-toggle="tab"]').forEach(tab => {
+    tab.addEventListener('click', function () {
+      if (this.id !== 'logsTabBtn') {
+        logsTabActive = false;
+        stopAuto();
+        STATUS_EL.textContent = '–';
+      }
+    });
+  });
+}());
 </script>
