@@ -4,6 +4,9 @@ const express = require('express');
 const passport = require('passport');
 const router = express.Router();
 
+const REMEMBER_ME_AGE = 30 * 24 * 60 * 60 * 1000; // 30 days
+const DEFAULT_AGE     =      24 * 60 * 60 * 1000; // 1 day
+
 // GET /auth/login
 router.get('/login', (req, res) => {
   if (req.isAuthenticated()) {
@@ -21,7 +24,12 @@ router.get('/login', (req, res) => {
 });
 
 // GET /auth/github — initiate OAuth flow
-router.get('/github', passport.authenticate('github'));
+// Accept ?remember=1 from the login form and stash it in the session so the
+// callback handler can extend the cookie lifetime after auth completes.
+router.get('/github', (req, res, next) => {
+  req.session.rememberMe = req.query.remember === '1';
+  passport.authenticate('github')(req, res, next);
+});
 
 // GET /auth/github/callback — OAuth callback
 router.get(
@@ -31,6 +39,11 @@ router.get(
     failureFlash: true
   }),
   (req, res) => {
+    if (req.session.rememberMe) {
+      req.session.cookie.maxAge = REMEMBER_ME_AGE;
+    } else {
+      req.session.cookie.maxAge = DEFAULT_AGE;
+    }
     req.flash('success', `Welcome back, ${req.user.username}!`);
     res.redirect('/admin');
   }

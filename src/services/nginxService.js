@@ -27,7 +27,7 @@ function locationBlock(project) {
   }
   location /${name}/ {
     proxy_pass            http://127.0.0.1:${port}/;
-    proxy_redirect        /  /${name}/;
+    proxy_redirect        ~^/(.*)$  /${name}/$1;
     proxy_http_version    1.1;
     proxy_set_header      Upgrade           $http_upgrade;
     proxy_set_header      Connection        "upgrade";
