@@ -239,7 +239,7 @@ router.post('/projects/:id', async (req, res, next) => {
       return res.redirect('/admin/projects');
     }
     await query(
-      `UPDATE projects SET branch = ?, start_command = ?, build_command = ?, updated_at = CURRENT_TIMESTAMP WHERE id = ?`,
+      `UPDATE projects SET branch = ?, start_command = ?, build_command = ? WHERE id = ?`,
       [branch || 'main', start_command || 'npm start', build_command || null, req.params.id]
     );
     req.flash('success', 'Project updated successfully.');
