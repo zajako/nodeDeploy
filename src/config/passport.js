@@ -45,6 +45,7 @@ passport.use(
 
         return done(null, user);
       } catch (err) {
+        console.error('[passport] verify callback error:', err.message);
         return done(err, null);
       }
     }
@@ -59,10 +60,12 @@ passport.deserializeUser(async (id, done) => {
   try {
     const rows = await query('SELECT * FROM users WHERE id = ?', [id]);
     if (!rows || rows.length === 0) {
+      console.error('[passport] deserializeUser: no user found for id', id);
       return done(null, false);
     }
     done(null, rows[0]);
   } catch (err) {
+    console.error('[passport] deserializeUser error:', err.message);
     done(err, null);
   }
 });

@@ -15,6 +15,10 @@ const passport = require('./config/passport');
 
 const app = express();
 
+// Trust nginx reverse proxy — required for secure cookies and correct
+// req.protocol / req.ip when sitting behind nginx.
+app.set('trust proxy', 1);
+
 // -------------------------------------------------------------------------
 // View engine
 // -------------------------------------------------------------------------
