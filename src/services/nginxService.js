@@ -27,6 +27,22 @@ function locationBlock(project) {
   const name = project.name;
   const port = project.port;
 
+  // Injected into HTML responses: patches window.WebSocket so any connection
+  // to the bare root (wss://host/ or ws://host/ or just '/') is rewritten to
+  // include the project's subpath prefix.  This fixes apps whose client JS
+  // constructs the WebSocket URL from window.location.host without the path.
+  const wsFixScript =
+    `<script>(function(){` +
+    `var O=window.WebSocket;` +
+    `window.WebSocket=function(u,p){` +
+      `var r=(location.protocol==="https:"?"wss://":"ws://")+location.host+"/";` +
+      `if(typeof u==="string"&&(u===r||u==="/"))` +
+        `u=r.slice(0,-1)+"/${name}/";` +
+      `return p?new O(u,p):new O(u);` +
+    `};` +
+    `window.WebSocket.prototype=O.prototype;` +
+    `}());</script></head>`;
+
   return `
   # ---- ${name} (port ${port}) ----
   location = /${name} {
@@ -43,8 +59,14 @@ function locationBlock(project) {
     proxy_set_header      X-Forwarded-For   $proxy_add_x_forwarded_for;
     proxy_set_header      X-Forwarded-Proto $scheme;
     proxy_set_header      X-Base-Path       /${name};
+    # Prevent upstream gzip so sub_filter can rewrite the HTML
+    proxy_set_header      Accept-Encoding   "";
     proxy_read_timeout    120s;
     proxy_connect_timeout 10s;
+    # Rewrite WebSocket root URL in HTML pages before the browser runs them
+    sub_filter_once       on;
+    sub_filter_types      text/html;
+    sub_filter            '</head>' '${wsFixScript}';
   }`;
 }
 
