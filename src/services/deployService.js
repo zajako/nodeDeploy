@@ -345,6 +345,26 @@ async function pullAndRedeploy(project) {
     );
     const accessToken = users[0] && users[0].access_token ? users[0].access_token : null;
 
+    // If the deploy directory is missing (manually deleted, first deploy failed,
+    // etc.) fall back to a full fresh deploy instead of trying to git-pull.
+    let dirExists = false;
+    try {
+      await fs.access(path.join(project.deploy_path, '.git'));
+      dirExists = true;
+    } catch {
+      dirExists = false;
+    }
+
+    if (!dirExists) {
+      await addLog(project.id, 'deploy', 'Deploy directory missing — running fresh deploy...');
+      const dbRows = await query('SELECT * FROM project_databases WHERE project_id = ?', [project.id]);
+      const dbCredentials = dbRows[0] || null;
+      const envVarRows = await query('SELECT key_name, value FROM project_env_vars WHERE project_id = ?', [project.id]);
+      const customEnvVars = {};
+      for (const row of envVarRows) customEnvVars[row.key_name] = row.value || '';
+      return await deployProject(project, accessToken, dbCredentials, customEnvVars);
+    }
+
     const git = simpleGit(project.deploy_path);
 
     if (accessToken) {
