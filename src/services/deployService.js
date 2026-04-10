@@ -351,9 +351,10 @@ async function pullAndRedeploy(project) {
       }
     }
 
-    await addLog(project.id, 'deploy', `Pulling latest from branch ${project.branch}...`);
-    await git.pull('origin', project.branch);
-    await addLog(project.id, 'deploy', 'Pull complete.');
+    await addLog(project.id, 'deploy', `Fetching latest from branch ${project.branch}...`);
+    await git.fetch('origin', project.branch);
+    await git.reset(['--hard', `origin/${project.branch}`]);
+    await addLog(project.id, 'deploy', 'Fetch and reset complete.');
 
     // Fetch DB credentials and env vars from DB
     const dbRows = await query('SELECT * FROM project_databases WHERE project_id = ?', [project.id]);
