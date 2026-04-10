@@ -11,6 +11,7 @@ const pm2 = require('pm2');
 const { v4: uuidv4 } = require('uuid');
 const { Octokit } = require('octokit');
 const { query } = require('../config/database');
+const { generateNginxConfig } = require('./nginxService');
 
 const execFileAsync = promisify(execFile);
 
@@ -314,7 +315,10 @@ async function deployProject(project, accessToken, dbCredentials = null, customE
     );
     await addLog(project.id, 'deploy', `Deploy complete! Running on port ${project.port}.`);
 
-    // 8. Setup GitHub webhook (async, non-blocking)
+    // 8. Regenerate nginx project location blocks
+    await generateNginxConfig();
+
+    // 9. Setup GitHub webhook (async, non-blocking)
     await setupGithubWebhook(project, accessToken);
   } catch (err) {
     await query(`UPDATE projects SET status = 'error' WHERE id = ?`, [project.id]);
@@ -496,6 +500,9 @@ async function deleteProject(projectId, deleteFiles, project) {
 
   // Delete from DB (cascade deletes env vars, db info, logs referencing this project)
   await query('DELETE FROM projects WHERE id = ?', [projectId]);
+
+  // Regenerate nginx config to remove this project's location block
+  await generateNginxConfig();
 }
 
 module.exports = {
