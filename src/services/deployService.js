@@ -249,12 +249,21 @@ async function deployProject(project, accessToken, dbCredentials = null, customE
       await git.fetch('origin');
       await git.reset(['--hard', `origin/${project.branch}`]);
     } else {
-      await simpleGit().clone(cloneUrl, project.deploy_path, ['--depth', '50']);
+      await simpleGit().clone(cloneUrl, project.deploy_path, [
+        '--branch', project.branch,
+        '--depth', '50'
+      ]);
     }
 
-    // 3. Checkout branch
+    // 3. Ensure correct branch is checked out (matters for re-deploy case;
+    //    fresh clones already land on the right branch via --branch above)
     const gitInDir = simpleGit(project.deploy_path);
-    await gitInDir.checkout(project.branch);
+    try {
+      // Try local checkout first, then track remote if branch not local yet
+      await gitInDir.checkout(project.branch);
+    } catch {
+      await gitInDir.checkoutBranch(project.branch, `origin/${project.branch}`);
+    }
     await addLog(project.id, 'deploy', `Checked out branch: ${project.branch}`);
 
     // 4. Write .env file
