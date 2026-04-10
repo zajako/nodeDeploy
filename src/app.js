@@ -239,13 +239,14 @@ app.use((err, req, res, next) => {
 // Start server
 // -------------------------------------------------------------------------
 const PORT = parseInt(process.env.PORT || '3000', 10);
-const { ensureConfExists } = require('./services/nginxService');
+const { ensureConfExists, generateNginxConfig } = require('./services/nginxService');
 
 app.listen(PORT, async () => {
   console.log(`NodeDeploy portal running on port ${PORT}`);
   console.log(`Environment: ${process.env.NODE_ENV || 'development'}`);
-  // Ensure nginx include file exists so nginx -t never fails on a fresh install
+  // Sync nginx projects.conf with the database on every startup
   await ensureConfExists();
+  await generateNginxConfig();
 });
 
 module.exports = app;
