@@ -148,11 +148,26 @@ async function generateEnvFile(project, dbCredentials = null, customEnvVars = {}
 }
 
 // -------------------------------------------------------------------------
+// Detect --prefix <subdir> in the start command so npm install and the
+// build command run in the same subdirectory (monorepo / subdir apps).
+// e.g. start_command = "npm start --prefix game"  →  subdir = "game"
+// -------------------------------------------------------------------------
+function getSubdir(project) {
+  const m = (project.start_command || '').match(/--prefix\s+(\S+)/);
+  return m ? m[1] : null;
+}
+
+// -------------------------------------------------------------------------
 // Run npm install (and optional build command) in deploy directory
 // -------------------------------------------------------------------------
 async function runInstallAndBuild(project) {
-  await addLog(project.id, 'deploy', 'Running npm install...');
-  await execFileAsync('npm', ['install', '--production=false'], {
+  const subdir = getSubdir(project);
+  const installArgs = ['install', '--production=false'];
+  if (subdir) installArgs.push('--prefix', subdir);
+
+  const installLabel = subdir ? `npm install --prefix ${subdir}` : 'npm install';
+  await addLog(project.id, 'deploy', `Running ${installLabel}...`);
+  await execFileAsync('npm', installArgs, {
     cwd: project.deploy_path,
     env: { ...process.env, NODE_ENV: 'production' },
     timeout: 5 * 60 * 1000 // 5 min
@@ -162,8 +177,9 @@ async function runInstallAndBuild(project) {
   if (project.build_command) {
     await addLog(project.id, 'deploy', `Running build command: ${project.build_command}`);
     const parts = project.build_command.split(' ');
+    const buildCwd = subdir ? path.join(project.deploy_path, subdir) : project.deploy_path;
     await execFileAsync(parts[0], parts.slice(1), {
-      cwd: project.deploy_path,
+      cwd: buildCwd,
       env: { ...process.env, NODE_ENV: 'production' },
       timeout: 10 * 60 * 1000
     });
