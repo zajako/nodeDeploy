@@ -9,7 +9,6 @@ const flash = require('connect-flash');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const methodOverride = require('method-override');
-const { createProxyMiddleware } = require('http-proxy-middleware');
 const { query } = require('./config/database');
 const passport = require('./config/passport');
 
@@ -83,6 +82,9 @@ app.use(passport.session());
 // -------------------------------------------------------------------------
 app.use(flash());
 
+// Make base domain available in all views as <%= baseDomain %>
+app.locals.baseDomain = process.env.BASE_DOMAIN || 'npmdeploy.com';
+
 // Pass flash messages and user to all views via res.locals
 app.use((req, res, next) => {
   res.locals.user = req.user || null;
@@ -98,98 +100,6 @@ app.use((req, res, next) => {
 // Static files
 // -------------------------------------------------------------------------
 app.use(express.static(path.join(__dirname, '..', 'public')));
-
-// -------------------------------------------------------------------------
-// Dynamic reverse proxy
-// Cache active projects for 5 seconds to avoid DB hammering
-// -------------------------------------------------------------------------
-const proxyCache = {
-  data: null,
-  lastFetched: 0,
-  ttl: 5000 // 5 seconds
-};
-
-// Map of projectName (lowercase) -> createProxyMiddleware instance
-const proxyMiddlewareMap = new Map();
-
-async function getActiveProjects() {
-  const now = Date.now();
-  if (proxyCache.data && now - proxyCache.lastFetched < proxyCache.ttl) {
-    return proxyCache.data;
-  }
-  try {
-    const projects = await query("SELECT name, port, status FROM projects WHERE status = 'active'");
-    proxyCache.data = projects;
-    proxyCache.lastFetched = now;
-    return projects;
-  } catch (err) {
-    // Return stale cache on DB error rather than crashing
-    return proxyCache.data || [];
-  }
-}
-
-function getOrCreateProxy(projectName, port) {
-  const key = `${projectName}:${port}`;
-  if (!proxyMiddlewareMap.has(key)) {
-    const proxy = createProxyMiddleware({
-      target: `http://localhost:${port}`,
-      changeOrigin: true,
-      ws: true,
-      pathRewrite: (reqPath) => {
-        // Strip the /projectName prefix
-        const prefix = `/${projectName}`;
-        if (reqPath.toLowerCase().startsWith(prefix.toLowerCase())) {
-          const stripped = reqPath.slice(prefix.length) || '/';
-          return stripped;
-        }
-        return reqPath;
-      },
-      on: {
-        error: (err, req, res) => {
-          console.error(`Proxy error for ${projectName}:`, err.message);
-          if (res && !res.headersSent) {
-            res.status(502).send(`<h1>502 Bad Gateway</h1><p>The application "${projectName}" is not responding.</p>`);
-          }
-        }
-      }
-    });
-    proxyMiddlewareMap.set(key, proxy);
-  }
-  return proxyMiddlewareMap.get(key);
-}
-
-// Dynamic proxy middleware — runs for all requests
-app.use(async (req, res, next) => {
-  // Skip admin/auth/webhook routes
-  const skipPrefixes = ['/admin', '/auth', '/webhook', '/public'];
-  if (skipPrefixes.some((p) => req.path.startsWith(p))) {
-    return next();
-  }
-
-  // Extract first path segment
-  const segments = req.path.split('/').filter(Boolean);
-  if (!segments.length) {
-    return next();
-  }
-  const firstSegment = segments[0];
-
-  try {
-    const projects = await getActiveProjects();
-    const matched = projects.find(
-      (p) => p.name.toLowerCase() === firstSegment.toLowerCase()
-    );
-
-    if (!matched) {
-      return next();
-    }
-
-    // Invalidate proxy instances if port changed (stale cache scenario)
-    const proxy = getOrCreateProxy(matched.name, matched.port);
-    return proxy(req, res, next);
-  } catch (err) {
-    return next();
-  }
-});
 
 // -------------------------------------------------------------------------
 // Routes

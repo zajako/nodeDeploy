@@ -26,8 +26,8 @@
             <% } %>
           </div>
           <% if (project.status === 'active') { %>
-          <a href="/<%= project.name %>" target="_blank" class="text-muted small">
-            npmdeploy.com/<%= project.name %> <i class="bi bi-box-arrow-up-right ms-1"></i>
+          <a href="https://<%= project.name %>.<%= baseDomain %>" target="_blank" class="text-muted small">
+            <%= project.name %>.<%= baseDomain %> <i class="bi bi-box-arrow-up-right ms-1"></i>
           </a>
           <% } %>
         </div>

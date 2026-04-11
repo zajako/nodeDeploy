@@ -10,128 +10,105 @@ const execFileAsync = promisify(execFile);
 
 const NGINX_DIR = path.join(__dirname, '..', '..', 'nginx');
 
-// Server-block includes (location blocks per project)
+// One server{} block per project, included at the nginx http{} level.
+// ONE-TIME SETUP: symlink into sites-enabled so nginx picks it up automatically:
+//   sudo ln -sf /home/zajako/nodeDeploy/nginx/projects.conf \
+//               /etc/nginx/sites-enabled/nodedeploy-projects.conf
 const NGINX_PROJECTS_CONF = process.env.NGINX_PROJECTS_CONF ||
   path.join(NGINX_DIR, 'projects.conf');
 
-// Http-block map (WebSocket referer → backend port).
-// MUST be included in the http {} block of /etc/nginx/nginx.conf:
-//   include /home/zajako/nodeDeploy/nginx/ws-map.conf;
-const NGINX_WS_MAP_CONF = process.env.NGINX_WS_MAP_CONF ||
-  path.join(NGINX_DIR, 'ws-map.conf');
+// Projects are served at <name>.<BASE_DOMAIN>
+const BASE_DOMAIN = process.env.BASE_DOMAIN || 'npmdeploy.com';
+
+// If set, HTTPS server blocks are generated using this wildcard cert.
+// The cert must cover *.BASE_DOMAIN — obtain it once with:
+//   sudo certbot certonly --manual --preferred-challenges dns \
+//     -d npmdeploy.com -d '*.npmdeploy.com'
+// Leave empty to generate HTTP-only blocks until the cert is ready.
+const WILDCARD_CERT_DOMAIN = process.env.WILDCARD_CERT_DOMAIN || '';
 
 // -------------------------------------------------------------------------
-// Build a pair of location blocks for one project
+// Build a server block for one project at <name>.<BASE_DOMAIN>
+// No path-prefix stripping needed — the app runs at the root of its subdomain.
+// WebSocket connections to wss://<name>.BASE_DOMAIN/ route correctly with no patching.
 // -------------------------------------------------------------------------
-function locationBlock(project) {
-  const name = project.name;
-  const port = project.port;
+function serverBlock(project) {
+  const { name, port } = project;
+  const serverName = `${name}.${BASE_DOMAIN}`;
 
-  // Injected into HTML responses: patches window.WebSocket so any connection
-  // to the bare root (wss://host/ or ws://host/ or just '/') is rewritten to
-  // include the project's subpath prefix.  This fixes apps whose client JS
-  // constructs the WebSocket URL from window.location.host without the path.
-  const wsFixScript =
-    `<script>(function(){` +
-    `var O=window.WebSocket;` +
-    `window.WebSocket=function(u,p){` +
-      `var r=(location.protocol==="https:"?"wss://":"ws://")+location.host+"/";` +
-      `if(typeof u==="string"&&(u===r||u==="/"))` +
-        `u=r.slice(0,-1)+"/${name}/";` +
-      `return p?new O(u,p):new O(u);` +
-    `};` +
-    `window.WebSocket.prototype=O.prototype;` +
-    `}());</script></head>`;
+  const location = `    location / {
+        proxy_pass            http://127.0.0.1:${port};
+        proxy_http_version    1.1;
+        proxy_set_header      Upgrade           $http_upgrade;
+        proxy_set_header      Connection        "upgrade";
+        proxy_set_header      Host              $host;
+        proxy_set_header      X-Real-IP         $remote_addr;
+        proxy_set_header      X-Forwarded-For   $proxy_add_x_forwarded_for;
+        proxy_set_header      X-Forwarded-Proto $scheme;
+        proxy_read_timeout    120s;
+        proxy_connect_timeout 10s;
+    }`;
 
-  return `
-  # ---- ${name} (port ${port}) ----
-  location = /${name} {
-    return 301 $scheme://$host/${name}/;
+  if (WILDCARD_CERT_DOMAIN) {
+    const certDir = `/etc/letsencrypt/live/${WILDCARD_CERT_DOMAIN}`;
+    return `
+# ---- ${name} (port ${port}) ----
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${serverName};
+    return 301 https://$host$request_uri;
+}
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name ${serverName};
+    ssl_certificate     ${certDir}/fullchain.pem;
+    ssl_certificate_key ${certDir}/privkey.pem;
+    include             /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam         /etc/letsencrypt/ssl-dhparams.pem;
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+    client_max_body_size 50m;
+${location}
+}`;
   }
-  location /${name}/ {
-    proxy_pass            http://127.0.0.1:${port}/;
-    proxy_redirect        ~^/(.*)$  /${name}/$1;
-    proxy_http_version    1.1;
-    proxy_set_header      Upgrade           $http_upgrade;
-    proxy_set_header      Connection        "upgrade";
-    proxy_set_header      Host              $host;
-    proxy_set_header      X-Real-IP         $remote_addr;
-    proxy_set_header      X-Forwarded-For   $proxy_add_x_forwarded_for;
-    proxy_set_header      X-Forwarded-Proto $scheme;
-    proxy_set_header      X-Base-Path       /${name};
-    # Prevent upstream gzip so sub_filter can rewrite the HTML
-    proxy_set_header      Accept-Encoding   "";
-    proxy_read_timeout    120s;
-    proxy_connect_timeout 10s;
-    # Rewrite WebSocket root URL in HTML pages before the browser runs them
-    sub_filter_once       on;
-    sub_filter_types      text/html;
-    sub_filter            '</head>' '${wsFixScript}';
-  }`;
+
+  // HTTP-only — WILDCARD_CERT_DOMAIN not set yet
+  return `
+# ---- ${name} (port ${port}) ----
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${serverName};
+    client_max_body_size 50m;
+${location}
+}`;
 }
 
 // -------------------------------------------------------------------------
-// Build the http-block map that routes root-path WebSocket connections
-// to the correct project port based on the Referer header.
-//
-// When client JS connects to wss://npmdeploy.com/ from a page loaded at
-// npmdeploy.com/projectname/, the browser sends:
-//   Upgrade: websocket
-//   Referer: https://npmdeploy.com/projectname/
-// The map key "$http_upgrade:$http_referer" matches this pattern and
-// selects the right upstream. All other requests default to the portal.
-// -------------------------------------------------------------------------
-function wsMapConf(projects) {
-  const portalBackend = `http://127.0.0.1:${process.env.PORT || 8080}`;
-
-  const entries = projects.map(p =>
-    `    # ${p.name}\n    ~^websocket:https?://[^/]+/${p.name}  http://127.0.0.1:${p.port};`
-  ).join('\n');
-
-  return [
-    `# Auto-generated by NodeDeploy – do not edit manually`,
-    `# Updated: ${new Date().toISOString()}`,
-    `#`,
-    `# ONE-TIME SETUP: add the following line inside the http { } block of`,
-    `# /etc/nginx/nginx.conf  (only needed once):`,
-    `#   include ${NGINX_WS_MAP_CONF};`,
-    ``,
-    `# Maps "$http_upgrade:$http_referer" → upstream backend.`,
-    `# Lets root-path WebSocket connections (wss://npmdeploy.com/) from a`,
-    `# project page be routed directly to that project's port instead of`,
-    `# the portal, without the app needing to know its subpath prefix.`,
-    `map $http_upgrade:$http_referer $ndws_backend {`,
-    `    default  ${portalBackend};`,
-    entries || `    # no projects yet`,
-    `}`,
-    ``,
-  ].join('\n');
-}
-
-// -------------------------------------------------------------------------
-// Regenerate both config files from the database and reload nginx
+// Regenerate projects.conf from the database and reload nginx
 // -------------------------------------------------------------------------
 async function generateNginxConfig() {
   try {
     const projects = await query(`SELECT name, port FROM projects ORDER BY name`);
 
-    // --- projects.conf (server block) ---
-    const projHeader = [
+    const header = [
       `# Auto-generated by NodeDeploy – do not edit manually`,
       `# Updated: ${new Date().toISOString()}`,
+      `# Projects are served at <name>.${BASE_DOMAIN}`,
+      `#`,
+      `# ONE-TIME SETUP: symlink this file into sites-enabled:`,
+      `#   sudo ln -sf ${NGINX_PROJECTS_CONF} /etc/nginx/sites-enabled/nodedeploy-projects.conf`,
       ``,
     ].join('\n');
 
-    const projBody = projects.length
-      ? projects.map(locationBlock).join('\n')
-      : '  # No projects registered yet';
+    const body = projects.length
+      ? projects.map(serverBlock).join('\n')
+      : '# No projects registered yet\n';
 
-    await fs.writeFile(NGINX_PROJECTS_CONF, projHeader + projBody + '\n', 'utf8');
+    await fs.writeFile(NGINX_PROJECTS_CONF, header + body + '\n', 'utf8');
 
-    // --- ws-map.conf (http block) ---
-    await fs.writeFile(NGINX_WS_MAP_CONF, wsMapConf(projects), 'utf8');
-
-    console.log(`[nginx] Wrote ${projects.length} project(s) to configs`);
+    console.log(`[nginx] Wrote ${projects.length} project server block(s) to ${NGINX_PROJECTS_CONF}`);
 
     await reloadNginx();
     return true;
@@ -157,23 +134,16 @@ async function reloadNginx() {
 }
 
 // -------------------------------------------------------------------------
-// Create empty config files on first run so nginx -t never fails
+// Create empty config file on first run so nginx -t never fails
 // -------------------------------------------------------------------------
 async function ensureConfExists() {
   await fs.mkdir(NGINX_DIR, { recursive: true });
 
-  for (const [file, stub] of [
-    [NGINX_PROJECTS_CONF, '# Auto-generated by NodeDeploy\n'],
-    [NGINX_WS_MAP_CONF,
-      `# Auto-generated by NodeDeploy\nmap $http_upgrade:$http_referer $ndws_backend {\n    default http://127.0.0.1:${process.env.PORT || 8080};\n}\n`
-    ],
-  ]) {
-    try {
-      await fs.access(file);
-    } catch {
-      await fs.writeFile(file, stub, 'utf8');
-      console.log('[nginx] Created', file);
-    }
+  try {
+    await fs.access(NGINX_PROJECTS_CONF);
+  } catch {
+    await fs.writeFile(NGINX_PROJECTS_CONF, '# Auto-generated by NodeDeploy\n', 'utf8');
+    console.log('[nginx] Created', NGINX_PROJECTS_CONF);
   }
 }
 

@@ -42,11 +42,11 @@
                   </td>
                   <td>
                     <% if (p.status === 'active') { %>
-                    <a href="/<%= p.name %>" target="_blank" class="text-primary small">
-                      /<%= p.name %> <i class="bi bi-box-arrow-up-right ms-1"></i>
+                    <a href="https://<%= p.name %>.<%= baseDomain %>" target="_blank" class="text-primary small">
+                      <%= p.name %>.<%= baseDomain %> <i class="bi bi-box-arrow-up-right ms-1"></i>
                     </a>
                     <% } else { %>
-                    <span class="text-muted small">/<%= p.name %></span>
+                    <span class="text-muted small"><%= p.name %>.<%= baseDomain %></span>
                     <% } %>
                   </td>
                   <td><span class="badge bg-dark border border-secondary"><%= p.branch %></span></td>
