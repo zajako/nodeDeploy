@@ -138,21 +138,39 @@
                 </div>
               </div>
             </div>
-            <% if (project.webhook_id) { %>
             <div class="col-12">
               <div class="card border-secondary">
-                <div class="card-header"><h6 class="mb-0">GitHub Webhook</h6></div>
+                <div class="card-header d-flex justify-content-between align-items-center">
+                  <h6 class="mb-0">GitHub Webhook</h6>
+                  <% if (!project.webhook_id) { %>
+                  <form action="/admin/projects/<%= project.id %>/register-webhook" method="POST">
+                    <button type="submit" class="btn btn-sm btn-outline-primary">
+                      <i class="bi bi-link-45deg me-1"></i>Register Webhook
+                    </button>
+                  </form>
+                  <% } %>
+                </div>
                 <div class="card-body">
+                  <% if (project.webhook_id) { %>
                   <dl class="row mb-0">
+                    <dt class="col-sm-3 text-muted">Status</dt>
+                    <dd class="col-sm-9"><span class="badge bg-success">Active</span></dd>
                     <dt class="col-sm-3 text-muted">Webhook ID</dt>
                     <dd class="col-sm-9 small"><%= project.webhook_id %></dd>
                     <dt class="col-sm-3 text-muted">Endpoint</dt>
                     <dd class="col-sm-9"><code class="small">/webhook/<%= project.name %></code></dd>
+                    <dt class="col-sm-3 text-muted">Trigger</dt>
+                    <dd class="col-sm-9 small">Push to <code><%= project.branch %></code> → auto-deploy</dd>
                   </dl>
+                  <% } else { %>
+                  <p class="text-muted small mb-0">
+                    <i class="bi bi-exclamation-circle me-1 text-warning"></i>
+                    No webhook registered. Click <strong>Register Webhook</strong> to enable auto-deploy on push.
+                  </p>
+                  <% } %>
                 </div>
               </div>
             </div>
-            <% } %>
           </div>
         </div>
 

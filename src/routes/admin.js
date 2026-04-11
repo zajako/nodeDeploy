@@ -362,4 +362,36 @@ router.get('/projects/:id/logs', async (req, res, next) => {
   }
 });
 
+// -----------------------------------------------------------------------
+// POST /admin/projects/:id/register-webhook
+// -----------------------------------------------------------------------
+router.post('/projects/:id/register-webhook', async (req, res, next) => {
+  try {
+    const projects = await query('SELECT * FROM projects WHERE id = ?', [req.params.id]);
+    if (!projects.length) {
+      req.flash('error', 'Project not found.');
+      return res.redirect('/admin/projects');
+    }
+    const project = projects[0];
+
+    const users = await query('SELECT access_token FROM users WHERE id = ?', [project.created_by]);
+    const accessToken = users[0] && users[0].access_token ? users[0].access_token : null;
+
+    if (!accessToken) {
+      req.flash('error', 'No GitHub access token found. Try signing out and back in.');
+      return res.redirect(`/admin/projects/${req.params.id}`);
+    }
+
+    const result = await deployService.setupGithubWebhook(project, accessToken);
+    if (result && result.webhookId) {
+      req.flash('success', `Webhook registered (id: ${result.webhookId}). Pushes to "${project.branch}" will now auto-deploy.`);
+    } else {
+      req.flash('error', 'Webhook registration failed — check deploy logs for details.');
+    }
+    res.redirect(`/admin/projects/${req.params.id}`);
+  } catch (err) {
+    next(err);
+  }
+});
+
 module.exports = router;
