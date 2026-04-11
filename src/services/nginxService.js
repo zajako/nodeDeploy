@@ -20,12 +20,13 @@ const NGINX_PROJECTS_CONF = process.env.NGINX_PROJECTS_CONF ||
 // Projects are served at <name>.<BASE_DOMAIN>
 const BASE_DOMAIN = process.env.BASE_DOMAIN || 'npmdeploy.com';
 
-// If set, HTTPS server blocks are generated using this wildcard cert.
-// The cert must cover *.BASE_DOMAIN — obtain it once with:
-//   sudo certbot certonly --manual --preferred-challenges dns \
-//     -d npmdeploy.com -d '*.npmdeploy.com'
-// Leave empty to generate HTTP-only blocks until the cert is ready.
+// Full path to the wildcard cert directory (e.g. /etc/letsencrypt/live/npmdeploy.com-0001).
+// Set WILDCARD_CERT_PATH to the exact path certbot printed, or set WILDCARD_CERT_DOMAIN
+// to derive the path as /etc/letsencrypt/live/<domain>.
+// Leave both empty to generate HTTP-only blocks until the cert is ready.
 const WILDCARD_CERT_DOMAIN = process.env.WILDCARD_CERT_DOMAIN || '';
+const WILDCARD_CERT_PATH = process.env.WILDCARD_CERT_PATH ||
+  (WILDCARD_CERT_DOMAIN ? `/etc/letsencrypt/live/${WILDCARD_CERT_DOMAIN}` : '');
 
 // -------------------------------------------------------------------------
 // Build a server block for one project at <name>.<BASE_DOMAIN>
@@ -49,8 +50,8 @@ function serverBlock(project) {
         proxy_connect_timeout 10s;
     }`;
 
-  if (WILDCARD_CERT_DOMAIN) {
-    const certDir = `/etc/letsencrypt/live/${WILDCARD_CERT_DOMAIN}`;
+  if (WILDCARD_CERT_PATH) {
+    const certDir = WILDCARD_CERT_PATH;
     return `
 # ---- ${name} (port ${port}) ----
 server {
