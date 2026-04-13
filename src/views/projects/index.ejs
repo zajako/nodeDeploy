@@ -64,7 +64,7 @@
                   </td>
                   <td class="text-muted small">
                     <% if (p.last_deployed) { %>
-                    <%= new Date(p.last_deployed).toLocaleString() %>
+                    <time data-ts="<%= new Date(p.last_deployed).toISOString() %>"></time>
                     <% } else { %>
                     Never
                     <% } %>
@@ -117,3 +117,9 @@
 
   <%- include('../partials/footer') %>
 </div>
+
+<script>
+document.querySelectorAll('time[data-ts]').forEach(function (el) {
+  el.textContent = new Date(el.dataset.ts).toLocaleString();
+});
+</script>

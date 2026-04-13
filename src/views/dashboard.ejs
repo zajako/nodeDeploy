@@ -145,7 +145,7 @@
                     <% recentLogs.forEach(function(log) { %>
                     <tr>
                       <td class="ps-3 text-muted small text-nowrap">
-                        <%= new Date(log.created_at).toLocaleString() %>
+                        <time data-ts="<%= new Date(log.created_at).toISOString() %>"></time>
                       </td>
                       <td class="small">
                         <% if (log.project_name) { %>
@@ -189,3 +189,9 @@
 
   <%- include('partials/footer') %>
 </div>
+
+<script>
+document.querySelectorAll('time[data-ts]').forEach(function (el) {
+  el.textContent = new Date(el.dataset.ts).toLocaleString();
+});
+</script>

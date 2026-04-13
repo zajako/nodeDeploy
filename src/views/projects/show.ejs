@@ -129,7 +129,7 @@
                     <dt class="col-sm-4 text-muted">Deployed</dt>
                     <dd class="col-sm-8 small">
                       <% if (project.last_deployed) { %>
-                      <%= new Date(project.last_deployed).toLocaleString() %>
+                      <time data-ts="<%= new Date(project.last_deployed).toISOString() %>"></time>
                       <% } else { %>
                       <span class="text-muted">Never</span>
                       <% } %>
@@ -255,7 +255,7 @@
                   <tbody id="logsBody">
                     <% logs.forEach(function(log) { %>
                     <tr>
-                      <td class="ps-3 text-muted small text-nowrap"><%= new Date(log.created_at).toLocaleString() %></td>
+                      <td class="ps-3 text-muted small text-nowrap"><time data-ts="<%= new Date(log.created_at).toISOString() %>"></time></td>
                       <td>
                         <% if (log.log_type === 'deploy') { %>
                         <span class="badge bg-primary-subtle text-primary-emphasis">deploy</span>
@@ -320,6 +320,11 @@
 </div>
 
 <script>
+// Convert all server-rendered timestamps to the viewer's local timezone
+document.querySelectorAll('time[data-ts]').forEach(function (el) {
+  el.textContent = new Date(el.dataset.ts).toLocaleString();
+});
+
 (function () {
   const PROJECT_ID   = '<%= project.id %>';
   const INTERVAL_MS  = 5000;   // auto-refresh every 5 s
