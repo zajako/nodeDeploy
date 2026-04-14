@@ -5,6 +5,7 @@ const router = express.Router();
 const { isAdmin } = require('../middleware/auth');
 const { query } = require('../config/database');
 const deployService = require('../services/deployService');
+const { generateNginxConfig, tryCertbot } = require('../services/nginxService');
 
 // Apply isAdmin to all admin routes
 router.use(isAdmin);
@@ -357,6 +358,71 @@ router.get('/projects/:id/logs', async (req, res, next) => {
       [req.params.id]
     );
     res.json({ logs });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// -----------------------------------------------------------------------
+// POST /admin/projects/:id/custom-domain — set or remove a custom domain
+// -----------------------------------------------------------------------
+router.post('/projects/:id/custom-domain', async (req, res, next) => {
+  try {
+    const projects = await query('SELECT * FROM projects WHERE id = ?', [req.params.id]);
+    if (!projects.length) {
+      req.flash('error', 'Project not found.');
+      return res.redirect('/admin/projects');
+    }
+    const project = projects[0];
+
+    // Normalise: strip protocol and trailing slash, lowercase
+    const raw = (req.body.custom_domain || '').trim();
+    const domain = raw.replace(/^https?:\/\//i, '').replace(/\/.*$/, '').toLowerCase();
+
+    // Remove domain if input was blank
+    if (!domain) {
+      await query('UPDATE projects SET custom_domain = NULL WHERE id = ?', [project.id]);
+      await generateNginxConfig();
+      req.flash('success', 'Custom domain removed.');
+      return res.redirect(`/admin/projects/${project.id}`);
+    }
+
+    // Basic domain format validation
+    if (!/^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/.test(domain)) {
+      req.flash('error', 'Invalid domain format. Enter a bare domain like myapp.com.');
+      return res.redirect(`/admin/projects/${project.id}`);
+    }
+
+    // Uniqueness check
+    const clash = await query(
+      'SELECT id FROM projects WHERE custom_domain = ? AND id != ?',
+      [domain, project.id]
+    );
+    if (clash.length) {
+      req.flash('error', `Domain "${domain}" is already mapped to another project.`);
+      return res.redirect(`/admin/projects/${project.id}`);
+    }
+
+    await query('UPDATE projects SET custom_domain = ? WHERE id = ?', [domain, project.id]);
+
+    // Generate HTTP block so nginx starts serving the domain (needed for ACME challenge)
+    await generateNginxConfig();
+
+    // Attempt auto-SSL via certbot (covers bare domain + www.)
+    const gotCert = await tryCertbot(domain);
+    if (gotCert) {
+      // Regenerate now that cert exists → switches to HTTPS block
+      await generateNginxConfig();
+      req.flash('success', `Custom domain ${domain} (and www.${domain}) configured with HTTPS.`);
+    } else {
+      const email = process.env.CERTBOT_EMAIL;
+      const hint = email
+        ? 'Certbot failed — check that the domain\'s DNS points to this server and port 80 is reachable.'
+        : `Set CERTBOT_EMAIL in .env for auto-SSL, or run manually:<br><code>sudo certbot certonly --webroot -w /var/www/html -d ${domain} -d www.${domain}</code> then restart the portal.`;
+      req.flash('info', `Custom domain ${domain} active over HTTP. ${hint}`);
+    }
+
+    res.redirect(`/admin/projects/${project.id}`);
   } catch (err) {
     next(err);
   }

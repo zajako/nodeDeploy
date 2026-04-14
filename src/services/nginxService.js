@@ -10,34 +10,20 @@ const execFileAsync = promisify(execFile);
 
 const NGINX_DIR = path.join(__dirname, '..', '..', 'nginx');
 
-// One server{} block per project, included at the nginx http{} level.
-// ONE-TIME SETUP: symlink into sites-enabled so nginx picks it up automatically:
-//   sudo ln -sf /home/zajako/nodeDeploy/nginx/projects.conf \
-//               /etc/nginx/sites-enabled/nodedeploy-projects.conf
 const NGINX_PROJECTS_CONF = process.env.NGINX_PROJECTS_CONF ||
   path.join(NGINX_DIR, 'projects.conf');
 
-// Projects are served at <name>.<BASE_DOMAIN>
 const BASE_DOMAIN = process.env.BASE_DOMAIN || 'npmdeploy.com';
 
-// Full path to the wildcard cert directory (e.g. /etc/letsencrypt/live/npmdeploy.com-0001).
-// Set WILDCARD_CERT_PATH to the exact path certbot printed, or set WILDCARD_CERT_DOMAIN
-// to derive the path as /etc/letsencrypt/live/<domain>.
-// Leave both empty to generate HTTP-only blocks until the cert is ready.
 const WILDCARD_CERT_DOMAIN = process.env.WILDCARD_CERT_DOMAIN || '';
 const WILDCARD_CERT_PATH = process.env.WILDCARD_CERT_PATH ||
   (WILDCARD_CERT_DOMAIN ? `/etc/letsencrypt/live/${WILDCARD_CERT_DOMAIN}` : '');
 
 // -------------------------------------------------------------------------
-// Build a server block for one project at <name>.<BASE_DOMAIN>
-// No path-prefix stripping needed — the app runs at the root of its subdomain.
-// WebSocket connections to wss://<name>.BASE_DOMAIN/ route correctly with no patching.
+// Shared proxy location block used by both subdomain and custom-domain blocks
 // -------------------------------------------------------------------------
-function serverBlock(project) {
-  const { name, port } = project;
-  const serverName = `${name}.${BASE_DOMAIN}`;
-
-  const location = `    location / {
+function proxyLocation(port) {
+  return `    location / {
         proxy_pass            http://127.0.0.1:${port};
         proxy_http_version    1.1;
         proxy_set_header      Upgrade           $http_upgrade;
@@ -49,11 +35,74 @@ function serverBlock(project) {
         proxy_read_timeout    120s;
         proxy_connect_timeout 10s;
     }`;
+}
+
+// -------------------------------------------------------------------------
+// Build a server block for the auto-assigned subdomain: <name>.<BASE_DOMAIN>
+// -------------------------------------------------------------------------
+function serverBlock(project) {
+  const { name, port } = project;
+  const serverName = `${name}.${BASE_DOMAIN}`;
+  const location = proxyLocation(port);
 
   if (WILDCARD_CERT_PATH) {
-    const certDir = WILDCARD_CERT_PATH;
     return `
 # ---- ${name} (port ${port}) ----
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${serverName};
+    return 301 https://$host$request_uri;
+}
+server {
+    listen 443 ssl http2;
+    listen [::]:443 ssl http2;
+    server_name ${serverName};
+    ssl_certificate     ${WILDCARD_CERT_PATH}/fullchain.pem;
+    ssl_certificate_key ${WILDCARD_CERT_PATH}/privkey.pem;
+    include             /etc/letsencrypt/options-ssl-nginx.conf;
+    ssl_dhparam         /etc/letsencrypt/ssl-dhparams.pem;
+    add_header Strict-Transport-Security "max-age=63072000; includeSubDomains" always;
+    client_max_body_size 50m;
+${location}
+}`;
+  }
+
+  return `
+# ---- ${name} (port ${port}) ----
+server {
+    listen 80;
+    listen [::]:80;
+    server_name ${serverName};
+    client_max_body_size 50m;
+${location}
+}`;
+}
+
+// -------------------------------------------------------------------------
+// Build an additional server block for a project's custom domain (if set).
+// Covers both bare domain and www. subdomain.
+// Uses the project-specific cert if certbot has already run, otherwise
+// generates an HTTP-only block that includes the ACME challenge location
+// so certbot can obtain the cert without downtime.
+// -------------------------------------------------------------------------
+async function customDomainBlock(project) {
+  const { name, port, custom_domain } = project;
+  if (!custom_domain) return '';
+
+  const serverName = `${custom_domain} www.${custom_domain}`;
+  const certDir    = `/etc/letsencrypt/live/${custom_domain}`;
+  const location   = proxyLocation(port);
+
+  let hasCert = false;
+  try {
+    await fs.access(`${certDir}/fullchain.pem`);
+    hasCert = true;
+  } catch { /* cert not yet obtained */ }
+
+  if (hasCert) {
+    return `
+# ---- ${name} custom domain: ${custom_domain} ----
 server {
     listen 80;
     listen [::]:80;
@@ -74,16 +123,48 @@ ${location}
 }`;
   }
 
-  // HTTP-only — WILDCARD_CERT_DOMAIN not set yet
+  // No cert yet — HTTP only with ACME challenge location so certbot can run
   return `
-# ---- ${name} (port ${port}) ----
+# ---- ${name} custom domain: ${custom_domain} (HTTP – run certbot to enable HTTPS) ----
 server {
     listen 80;
     listen [::]:80;
     server_name ${serverName};
+    # ACME challenge for certbot
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
     client_max_body_size 50m;
 ${location}
 }`;
+}
+
+// -------------------------------------------------------------------------
+// Attempt to obtain a cert for a custom domain via certbot --webroot.
+// Requires CERTBOT_EMAIL env var and sudo certbot in sudoers.
+// Returns true on success, false on any failure.
+// -------------------------------------------------------------------------
+async function tryCertbot(domain) {
+  const email = process.env.CERTBOT_EMAIL;
+  if (!email) {
+    console.log(`[nginx] CERTBOT_EMAIL not set — skipping auto-SSL for ${domain}`);
+    return false;
+  }
+  try {
+    await execFileAsync('sudo', [
+      'certbot', 'certonly', '--webroot',
+      '-w', '/var/www/html',
+      '-d', domain,
+      '-d', `www.${domain}`,
+      '--non-interactive', '--agree-tos',
+      '-m', email
+    ]);
+    console.log(`[nginx] certbot: SSL cert obtained for ${domain}`);
+    return true;
+  } catch (err) {
+    console.error(`[nginx] certbot failed for ${domain}: ${err.message}`);
+    return false;
+  }
 }
 
 // -------------------------------------------------------------------------
@@ -91,24 +172,29 @@ ${location}
 // -------------------------------------------------------------------------
 async function generateNginxConfig() {
   try {
-    const projects = await query(`SELECT name, port FROM projects ORDER BY name`);
+    const projects = await query(`SELECT name, port, custom_domain FROM projects ORDER BY name`);
 
     const header = [
       `# Auto-generated by NodeDeploy – do not edit manually`,
       `# Updated: ${new Date().toISOString()}`,
-      `# Projects are served at <name>.${BASE_DOMAIN}`,
+      `# Projects are served at <name>.${BASE_DOMAIN} (+ optional custom domain)`,
       `#`,
       `# ONE-TIME SETUP: symlink this file into sites-enabled:`,
       `#   sudo ln -sf ${NGINX_PROJECTS_CONF} /etc/nginx/sites-enabled/nodedeploy-projects.conf`,
       ``,
     ].join('\n');
 
-    const body = projects.length
-      ? projects.map(serverBlock).join('\n')
-      : '# No projects registered yet\n';
+    let body;
+    if (projects.length) {
+      const blocks = await Promise.all(
+        projects.map(async (p) => serverBlock(p) + await customDomainBlock(p))
+      );
+      body = blocks.join('\n');
+    } else {
+      body = '# No projects registered yet\n';
+    }
 
     await fs.writeFile(NGINX_PROJECTS_CONF, header + body + '\n', 'utf8');
-
     console.log(`[nginx] Wrote ${projects.length} project server block(s) to ${NGINX_PROJECTS_CONF}`);
 
     await reloadNginx();
@@ -148,4 +234,4 @@ async function ensureConfExists() {
   }
 }
 
-module.exports = { generateNginxConfig, reloadNginx, ensureConfExists };
+module.exports = { generateNginxConfig, reloadNginx, ensureConfExists, tryCertbot };

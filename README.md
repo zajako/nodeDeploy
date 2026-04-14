@@ -302,6 +302,37 @@ nodedeploy/
 | `BASE_DOMAIN` | No | `npmdeploy.com` | Base domain for project subdomains |
 | `WILDCARD_CERT_PATH` | No | — | Full path to wildcard cert directory (e.g. `/etc/letsencrypt/live/yourdomain.com-0001`) |
 | `WILDCARD_CERT_DOMAIN` | No | — | Alternative to `WILDCARD_CERT_PATH` — derives path as `/etc/letsencrypt/live/<domain>` |
+| `CERTBOT_EMAIL` | No | — | Email for auto-SSL when a custom domain is mapped. If unset, certbot is skipped and you must run it manually. |
+
+---
+
+## Custom domains
+
+Each project can be mapped to a domain you own (e.g. `myapp.com`) in addition to its auto-assigned subdomain. Open the project page and enter the domain in the **Custom Domain** card.
+
+**Before setting the domain:** point the domain's DNS A record (and `www` CNAME or A record) to your server's IP. The portal won't check DNS — nginx just starts serving it.
+
+**Auto-SSL:** set `CERTBOT_EMAIL` in `.env` and ensure certbot is in sudoers. When a domain is saved, the portal generates an HTTP block, then runs:
+
+```bash
+sudo certbot certonly --webroot -w /var/www/html -d myapp.com -d www.myapp.com
+```
+
+On success it regenerates the nginx block with HTTPS. If certbot fails or `CERTBOT_EMAIL` is not set, the domain stays HTTP-only and the project page shows the manual certbot command to run.
+
+**Sudoers entry for certbot** (in addition to the nginx reload entry):
+
+```
+youruser ALL=(ALL) NOPASSWD: /usr/bin/certbot
+```
+
+### Existing installs — database migration
+
+Run this once after pulling the update:
+
+```bash
+mysql -u nodedeploy_user -p nodedeploy < sql/migrations/001_add_custom_domain.sql
+```
 
 ---
 

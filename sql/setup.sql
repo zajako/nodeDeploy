@@ -34,6 +34,7 @@ CREATE TABLE IF NOT EXISTS projects (
   status        ENUM('active', 'stopped', 'error', 'deploying') DEFAULT 'deploying',
   webhook_secret VARCHAR(255)                 COMMENT 'HMAC secret shared with GitHub',
   webhook_id    VARCHAR(255)                  COMMENT 'GitHub webhook id for management',
+  custom_domain VARCHAR(255) UNIQUE           COMMENT 'Optional custom domain (e.g. myapp.com)',
   deploy_path   TEXT NOT NULL                 COMMENT 'Absolute path on disk',
   start_command VARCHAR(255) DEFAULT 'npm start',
   build_command VARCHAR(255),

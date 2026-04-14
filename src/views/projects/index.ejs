@@ -42,9 +42,14 @@
                   </td>
                   <td>
                     <% if (p.status === 'active') { %>
-                    <a href="https://<%= p.name %>.<%= baseDomain %>" target="_blank" class="text-primary small">
+                    <a href="https://<%= p.name %>.<%= baseDomain %>" target="_blank" class="text-primary small d-block">
                       <%= p.name %>.<%= baseDomain %> <i class="bi bi-box-arrow-up-right ms-1"></i>
                     </a>
+                    <% if (p.custom_domain) { %>
+                    <a href="https://<%= p.custom_domain %>" target="_blank" class="text-info small d-block">
+                      <i class="bi bi-globe me-1"></i><%= p.custom_domain %> <i class="bi bi-box-arrow-up-right ms-1"></i>
+                    </a>
+                    <% } %>
                     <% } else { %>
                     <span class="text-muted small"><%= p.name %>.<%= baseDomain %></span>
                     <% } %>
