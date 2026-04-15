@@ -182,21 +182,38 @@
             <!-- Custom Domain -->
             <div class="col-12">
               <div class="card border-secondary">
-                <div class="card-header"><h6 class="mb-0"><i class="bi bi-globe me-1"></i>Custom Domain</h6></div>
+                <div class="card-header d-flex justify-content-between align-items-center">
+                  <h6 class="mb-0"><i class="bi bi-globe me-1"></i>Custom Domain</h6>
+                  <% if (project.custom_domain) { %>
+                  <form action="/admin/projects/<%= project.id %>/refresh-ssl" method="POST" class="m-0">
+                    <button type="submit" class="btn btn-sm btn-outline-success" title="Re-check for SSL cert and reload nginx">
+                      <i class="bi bi-shield-check me-1"></i>Refresh SSL
+                    </button>
+                  </form>
+                  <% } %>
+                </div>
                 <div class="card-body">
                   <% if (project.custom_domain) { %>
-                  <div class="d-flex flex-wrap justify-content-between align-items-start gap-3 mb-3">
-                    <div>
-                      <a href="https://<%= project.custom_domain %>" target="_blank" class="fw-semibold">
-                        <%= project.custom_domain %> <i class="bi bi-box-arrow-up-right ms-1 small"></i>
+                  <div class="mb-3">
+                    <div class="d-flex flex-wrap gap-3 align-items-center">
+                      <a href="http://<%= project.custom_domain %>" target="_blank" class="fw-semibold text-decoration-none">
+                        <i class="bi bi-globe2 me-1 text-muted"></i><%= project.custom_domain %>
+                        <i class="bi bi-box-arrow-up-right ms-1 small text-muted"></i>
                       </a>
-                      <div class="text-muted small mt-1">
-                        www.<%= project.custom_domain %> is also covered.
-                      </div>
+                      <span class="text-muted small">and www.<%= project.custom_domain %></span>
                     </div>
+                    <p class="text-muted small mt-2 mb-0">
+                      <i class="bi bi-info-circle me-1"></i>
+                      To enable HTTPS, run:
+                      <code>sudo certbot certonly --webroot -w /var/www/html -d <%= project.custom_domain %> -d www.<%= project.custom_domain %></code>
+                      then click <strong>Refresh SSL</strong>.
+                    </p>
                   </div>
                   <% } else { %>
-                  <p class="text-muted small mb-3">Map a domain you own (e.g. <code>myapp.com</code>) to this project. Point its DNS A record to this server's IP first.</p>
+                  <p class="text-muted small mb-3">
+                    Map a domain you own (e.g. <code>myapp.com</code>) to this project.
+                    Point both the bare domain and <code>www</code> A records to this server's IP first.
+                  </p>
                   <% } %>
                   <form action="/admin/projects/<%= project.id %>/custom-domain" method="POST" class="d-flex gap-2 flex-wrap align-items-center">
                     <input type="text"
@@ -214,9 +231,6 @@
                     </button>
                     <% } %>
                   </form>
-                  <p class="text-muted small mt-2 mb-0">
-                    <i class="bi bi-shield-lock me-1"></i>HTTPS is configured automatically if <code>CERTBOT_EMAIL</code> is set in your <code>.env</code>.
-                  </p>
                 </div>
               </div>
             </div>

@@ -364,6 +364,44 @@ router.get('/projects/:id/logs', async (req, res, next) => {
 });
 
 // -----------------------------------------------------------------------
+// POST /admin/projects/:id/refresh-ssl
+// Re-runs generateNginxConfig so a manually-obtained certbot cert is picked up
+// -----------------------------------------------------------------------
+router.post('/projects/:id/refresh-ssl', async (req, res, next) => {
+  try {
+    const projects = await query('SELECT * FROM projects WHERE id = ?', [req.params.id]);
+    if (!projects.length) {
+      req.flash('error', 'Project not found.');
+      return res.redirect('/admin/projects');
+    }
+    const project = projects[0];
+    if (!project.custom_domain) {
+      req.flash('error', 'No custom domain is set for this project.');
+      return res.redirect(`/admin/projects/${project.id}`);
+    }
+
+    await generateNginxConfig();
+
+    // Check if cert now exists
+    const fs = require('fs').promises;
+    let hasCert = false;
+    try {
+      await fs.access(`/etc/letsencrypt/live/${project.custom_domain}/fullchain.pem`);
+      hasCert = true;
+    } catch { /* no cert */ }
+
+    if (hasCert) {
+      req.flash('success', `SSL cert detected for ${project.custom_domain} — nginx updated to serve HTTPS.`);
+    } else {
+      req.flash('info', `No cert found yet for ${project.custom_domain}. Run: sudo certbot certonly --webroot -w /var/www/html -d ${project.custom_domain} -d www.${project.custom_domain}`);
+    }
+    res.redirect(`/admin/projects/${project.id}`);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// -----------------------------------------------------------------------
 // POST /admin/projects/:id/custom-domain — set or remove a custom domain
 // -----------------------------------------------------------------------
 router.post('/projects/:id/custom-domain', async (req, res, next) => {
