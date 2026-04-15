@@ -80,6 +80,40 @@ ${location}
 }
 
 // -------------------------------------------------------------------------
+// Find the actual certbot live directory for a domain.
+// certbot sometimes appends -0001, -0002 etc. instead of using the bare
+// domain name, so we scan /etc/letsencrypt/live/ for any dir that starts
+// with the domain name and contains a fullchain.pem.
+// Returns the directory path string, or null if no cert exists.
+// -------------------------------------------------------------------------
+async function findCertDir(domain) {
+  const liveDir = '/etc/letsencrypt/live';
+
+  // Try the exact name first (most common case)
+  const exact = path.join(liveDir, domain);
+  try {
+    await fs.access(path.join(exact, 'fullchain.pem'));
+    return exact;
+  } catch { /* try variations */ }
+
+  // Scan for domain-0001, domain-0002, etc.
+  try {
+    const entries = await fs.readdir(liveDir);
+    for (const entry of entries.sort()) {
+      if (entry.startsWith(`${domain}-`)) {
+        const certFile = path.join(liveDir, entry, 'fullchain.pem');
+        try {
+          await fs.access(certFile);
+          return path.join(liveDir, entry);
+        } catch { /* no cert here */ }
+      }
+    }
+  } catch { /* live dir unreadable */ }
+
+  return null;
+}
+
+// -------------------------------------------------------------------------
 // Build an additional server block for a project's custom domain (if set).
 // Covers both bare domain and www. subdomain.
 // Uses the project-specific cert if certbot has already run, otherwise
@@ -91,14 +125,10 @@ async function customDomainBlock(project) {
   if (!custom_domain) return '';
 
   const serverName = `${custom_domain} www.${custom_domain}`;
-  const certDir    = `/etc/letsencrypt/live/${custom_domain}`;
   const location   = proxyLocation(port);
 
-  let hasCert = false;
-  try {
-    await fs.access(`${certDir}/fullchain.pem`);
-    hasCert = true;
-  } catch { /* cert not yet obtained */ }
+  const certDir = await findCertDir(custom_domain);
+  const hasCert = certDir !== null;
 
   if (hasCert) {
     return `
