@@ -81,35 +81,23 @@ ${location}
 
 // -------------------------------------------------------------------------
 // Find the actual certbot live directory for a domain.
-// certbot sometimes appends -0001, -0002 etc. instead of using the bare
-// domain name, so we scan /etc/letsencrypt/live/ for any dir that starts
-// with the domain name and contains a fullchain.pem.
-// Returns the directory path string, or null if no cert exists.
+// /etc/letsencrypt/live/ is root-owned so direct fs.access fails for
+// non-root processes. We fall back to `sudo certbot certificates -d domain`
+// which the portal user can run (certbot is already in sudoers) and
+// parse the "Certificate Path:" line from its output.
+// Returns the cert directory path, or null if no cert exists.
 // -------------------------------------------------------------------------
 async function findCertDir(domain) {
-  const liveDir = '/etc/letsencrypt/live';
-
-  // Try the exact name first (most common case)
-  const exact = path.join(liveDir, domain);
   try {
-    await fs.access(path.join(exact, 'fullchain.pem'));
-    return exact;
-  } catch { /* try variations */ }
-
-  // Scan for domain-0001, domain-0002, etc.
-  try {
-    const entries = await fs.readdir(liveDir);
-    for (const entry of entries.sort()) {
-      if (entry.startsWith(`${domain}-`)) {
-        const certFile = path.join(liveDir, entry, 'fullchain.pem');
-        try {
-          await fs.access(certFile);
-          return path.join(liveDir, entry);
-        } catch { /* no cert here */ }
-      }
+    const { stdout } = await execFileAsync('sudo', ['certbot', 'certificates', '-d', domain]);
+    // Output contains: "Certificate Path: /etc/letsencrypt/live/domain-0001/fullchain.pem"
+    const match = stdout.match(/Certificate Path:\s+(\S+\/fullchain\.pem)/);
+    if (match) {
+      return path.dirname(match[1]);
     }
-  } catch { /* live dir unreadable */ }
-
+  } catch (err) {
+    console.error(`[nginx] certbot certificates failed for ${domain}: ${err.message}`);
+  }
   return null;
 }
 
