@@ -364,6 +364,100 @@ router.get('/projects/:id/logs', async (req, res, next) => {
 });
 
 // -----------------------------------------------------------------------
+// POST /admin/projects/:id/database — add or update linked MySQL database
+// -----------------------------------------------------------------------
+router.post('/projects/:id/database', async (req, res, next) => {
+  try {
+    const projects = await query('SELECT * FROM projects WHERE id = ?', [req.params.id]);
+    if (!projects.length) {
+      req.flash('error', 'Project not found.');
+      return res.redirect('/admin/projects');
+    }
+    const project = projects[0];
+
+    const { db_name, db_user, db_password, db_host = 'localhost', db_port = 3306 } = req.body;
+
+    if (!db_name || !db_user) {
+      req.flash('error', 'Database name and username are required.');
+      return res.redirect(`/admin/projects/${project.id}`);
+    }
+
+    const existing = await query('SELECT * FROM project_databases WHERE project_id = ?', [project.id]);
+
+    if (existing.length) {
+      // Keep existing password if field was left blank
+      const password = db_password || existing[0].db_password;
+      await query(
+        `UPDATE project_databases SET db_name = ?, db_user = ?, db_password = ?, db_host = ?, db_port = ? WHERE project_id = ?`,
+        [db_name, db_user, password, db_host || 'localhost', parseInt(db_port) || 3306, project.id]
+      );
+    } else {
+      if (!db_password) {
+        req.flash('error', 'Password is required when adding a new database.');
+        return res.redirect(`/admin/projects/${project.id}`);
+      }
+      await query(
+        `INSERT INTO project_databases (project_id, db_name, db_user, db_password, db_host, db_port) VALUES (?, ?, ?, ?, ?, ?)`,
+        [project.id, db_name, db_user, db_password, db_host || 'localhost', parseInt(db_port) || 3306]
+      );
+    }
+
+    // Regenerate .env with updated credentials
+    const dbRows = await query('SELECT * FROM project_databases WHERE project_id = ?', [project.id]);
+    const envVarRows = await query('SELECT key_name, value FROM project_env_vars WHERE project_id = ?', [project.id]);
+    const customEnvVars = {};
+    for (const row of envVarRows) customEnvVars[row.key_name] = row.value || '';
+
+    await deployService.generateEnvFile(project, dbRows[0], customEnvVars);
+
+    try {
+      await deployService.restartProject(project);
+      req.flash('success', 'Database credentials saved and project restarted.');
+    } catch {
+      req.flash('info', 'Database credentials saved. Project could not be restarted automatically — use the Restart button.');
+    }
+
+    res.redirect(`/admin/projects/${project.id}`);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// -----------------------------------------------------------------------
+// POST /admin/projects/:id/database/remove — unlink database
+// -----------------------------------------------------------------------
+router.post('/projects/:id/database/remove', async (req, res, next) => {
+  try {
+    const projects = await query('SELECT * FROM projects WHERE id = ?', [req.params.id]);
+    if (!projects.length) {
+      req.flash('error', 'Project not found.');
+      return res.redirect('/admin/projects');
+    }
+    const project = projects[0];
+
+    await query('DELETE FROM project_databases WHERE project_id = ?', [project.id]);
+
+    // Regenerate .env without DB credentials
+    const envVarRows = await query('SELECT key_name, value FROM project_env_vars WHERE project_id = ?', [project.id]);
+    const customEnvVars = {};
+    for (const row of envVarRows) customEnvVars[row.key_name] = row.value || '';
+
+    await deployService.generateEnvFile(project, null, customEnvVars);
+
+    try {
+      await deployService.restartProject(project);
+      req.flash('success', 'Database removed and project restarted.');
+    } catch {
+      req.flash('info', 'Database removed. Project could not be restarted automatically — use the Restart button.');
+    }
+
+    res.redirect(`/admin/projects/${project.id}`);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// -----------------------------------------------------------------------
 // POST /admin/projects/:id/refresh-ssl
 // Runs certbot for the custom domain, logs all output, regenerates nginx
 // -----------------------------------------------------------------------
