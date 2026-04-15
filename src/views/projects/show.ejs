@@ -203,10 +203,9 @@
                       <span class="text-muted small">and www.<%= project.custom_domain %></span>
                     </div>
                     <p class="text-muted small mt-2 mb-0">
-                      <i class="bi bi-info-circle me-1"></i>
-                      To enable HTTPS, run:
-                      <code>sudo certbot certonly --webroot -w /var/www/html -d <%= project.custom_domain %> -d www.<%= project.custom_domain %></code>
-                      then click <strong>Refresh SSL</strong>.
+                      <i class="bi bi-shield-lock me-1"></i>
+                      Click <strong>Refresh SSL</strong> to obtain an HTTPS certificate automatically.
+                      Ensure <code>CERTBOT_EMAIL</code> is set in <code>.env</code> and the domain's DNS points to this server.
                     </p>
                   </div>
                   <% } else { %>

@@ -365,7 +365,7 @@ router.get('/projects/:id/logs', async (req, res, next) => {
 
 // -----------------------------------------------------------------------
 // POST /admin/projects/:id/refresh-ssl
-// Re-runs generateNginxConfig so a manually-obtained certbot cert is picked up
+// Runs certbot for the custom domain, then regenerates nginx config
 // -----------------------------------------------------------------------
 router.post('/projects/:id/refresh-ssl', async (req, res, next) => {
   try {
@@ -380,20 +380,23 @@ router.post('/projects/:id/refresh-ssl', async (req, res, next) => {
       return res.redirect(`/admin/projects/${project.id}`);
     }
 
+    const domain = project.custom_domain;
+
+    // Attempt to obtain / renew the cert
+    const gotCert = await tryCertbot(domain);
+
+    // Regenerate nginx config — picks up cert if certbot succeeded
     await generateNginxConfig();
 
-    // Check if cert now exists
-    const fs = require('fs').promises;
-    let hasCert = false;
-    try {
-      await fs.access(`/etc/letsencrypt/live/${project.custom_domain}/fullchain.pem`);
-      hasCert = true;
-    } catch { /* no cert */ }
-
-    if (hasCert) {
-      req.flash('success', `SSL cert detected for ${project.custom_domain} — nginx updated to serve HTTPS.`);
+    if (gotCert) {
+      req.flash('success', `SSL cert obtained for ${domain} (and www.${domain}) — nginx updated to serve HTTPS.`);
     } else {
-      req.flash('info', `No cert found yet for ${project.custom_domain}. Run: sudo certbot certonly --webroot -w /var/www/html -d ${project.custom_domain} -d www.${project.custom_domain}`);
+      const email = process.env.CERTBOT_EMAIL;
+      if (!email) {
+        req.flash('error', `CERTBOT_EMAIL is not set in .env — certbot was skipped. Add it and click Refresh SSL again.`);
+      } else {
+        req.flash('error', `Certbot failed for ${domain}. Ensure the domain's DNS A record points to this server and port 80 is reachable, then try again.`);
+      }
     }
     res.redirect(`/admin/projects/${project.id}`);
   } catch (err) {
