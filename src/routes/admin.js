@@ -365,7 +365,7 @@ router.get('/projects/:id/logs', async (req, res, next) => {
 
 // -----------------------------------------------------------------------
 // POST /admin/projects/:id/refresh-ssl
-// Runs certbot for the custom domain, then regenerates nginx config
+// Runs certbot for the custom domain, logs all output, regenerates nginx
 // -----------------------------------------------------------------------
 router.post('/projects/:id/refresh-ssl', async (req, res, next) => {
   try {
@@ -381,23 +381,32 @@ router.post('/projects/:id/refresh-ssl', async (req, res, next) => {
     }
 
     const domain = project.custom_domain;
+    const addLog = (type, msg) => query(
+      `INSERT INTO deploy_logs (project_id, log_type, message) VALUES (?, ?, ?)`,
+      [project.id, type, msg]
+    );
 
-    // Attempt to obtain / renew the cert
-    const gotCert = await tryCertbot(domain);
+    await addLog('info', `Requesting SSL cert for ${domain} and www.${domain}...`);
 
-    // Regenerate nginx config — picks up cert if certbot succeeded
-    await generateNginxConfig();
+    const { success, output } = await tryCertbot(domain);
 
-    if (gotCert) {
-      req.flash('success', `SSL cert obtained for ${domain} (and www.${domain}) — nginx updated to serve HTTPS.`);
-    } else {
-      const email = process.env.CERTBOT_EMAIL;
-      if (!email) {
-        req.flash('error', `CERTBOT_EMAIL is not set in .env — certbot was skipped. Add it and click Refresh SSL again.`);
-      } else {
-        req.flash('error', `Certbot failed for ${domain}. Ensure the domain's DNS A record points to this server and port 80 is reachable, then try again.`);
+    // Log every line of certbot output individually so the log table is readable
+    if (output) {
+      for (const line of output.split('\n').map(l => l.trim()).filter(Boolean)) {
+        await addLog(success ? 'info' : 'error', `[certbot] ${line}`);
       }
     }
+
+    if (success) {
+      await addLog('info', `SSL cert obtained — regenerating nginx config...`);
+      await generateNginxConfig();
+      await addLog('info', `nginx reloaded with HTTPS for ${domain}.`);
+      req.flash('success', `SSL cert obtained for ${domain} — now serving HTTPS. Check the Logs tab for details.`);
+    } else {
+      await generateNginxConfig(); // reload nginx anyway (keeps HTTP block active)
+      req.flash('error', `Certbot failed for ${domain}. Check the Logs tab for the full error output.`);
+    }
+
     res.redirect(`/admin/projects/${project.id}`);
   } catch (err) {
     next(err);
@@ -446,21 +455,31 @@ router.post('/projects/:id/custom-domain', async (req, res, next) => {
 
     await query('UPDATE projects SET custom_domain = ? WHERE id = ?', [domain, project.id]);
 
-    // Generate HTTP block so nginx starts serving the domain (needed for ACME challenge)
-    await generateNginxConfig();
+    const addLog = (type, msg) => query(
+      `INSERT INTO deploy_logs (project_id, log_type, message) VALUES (?, ?, ?)`,
+      [project.id, type, msg]
+    );
 
-    // Attempt auto-SSL via certbot (covers bare domain + www.)
-    const gotCert = await tryCertbot(domain);
-    if (gotCert) {
-      // Regenerate now that cert exists → switches to HTTPS block
+    // Generate HTTP block first (nginx must serve domain on port 80 for ACME challenge)
+    await generateNginxConfig();
+    await addLog('info', `Custom domain set to ${domain} — nginx serving HTTP.`);
+
+    // Attempt auto-SSL
+    await addLog('info', `Requesting SSL cert for ${domain} and www.${domain}...`);
+    const { success, output } = await tryCertbot(domain);
+
+    if (output) {
+      for (const line of output.split('\n').map(l => l.trim()).filter(Boolean)) {
+        await addLog(success ? 'info' : 'error', `[certbot] ${line}`);
+      }
+    }
+
+    if (success) {
       await generateNginxConfig();
-      req.flash('success', `Custom domain ${domain} (and www.${domain}) configured with HTTPS.`);
+      await addLog('info', `nginx reloaded with HTTPS for ${domain}.`);
+      req.flash('success', `Custom domain ${domain} configured with HTTPS. Check the Logs tab for details.`);
     } else {
-      const email = process.env.CERTBOT_EMAIL;
-      const hint = email
-        ? 'Certbot failed — check that the domain\'s DNS points to this server and port 80 is reachable.'
-        : `Set CERTBOT_EMAIL in .env for auto-SSL, or run manually:<br><code>sudo certbot certonly --webroot -w /var/www/html -d ${domain} -d www.${domain}</code> then restart the portal.`;
-      req.flash('info', `Custom domain ${domain} active over HTTP. ${hint}`);
+      req.flash('info', `Custom domain ${domain} active over HTTP. Check the Logs tab for certbot output, then use Refresh SSL once DNS and port 80 are confirmed reachable.`);
     }
 
     res.redirect(`/admin/projects/${project.id}`);

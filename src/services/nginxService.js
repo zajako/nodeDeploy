@@ -142,16 +142,17 @@ ${location}
 // -------------------------------------------------------------------------
 // Attempt to obtain a cert for a custom domain via certbot --webroot.
 // Requires CERTBOT_EMAIL env var and sudo certbot in sudoers.
-// Returns true on success, false on any failure.
+// Returns { success, output } where output is the combined certbot stdout/stderr.
 // -------------------------------------------------------------------------
 async function tryCertbot(domain) {
   const email = process.env.CERTBOT_EMAIL;
   if (!email) {
-    console.log(`[nginx] CERTBOT_EMAIL not set — skipping auto-SSL for ${domain}`);
-    return false;
+    const msg = 'CERTBOT_EMAIL is not set in .env — certbot skipped.';
+    console.log(`[nginx] ${msg}`);
+    return { success: false, output: msg };
   }
   try {
-    await execFileAsync('sudo', [
+    const { stdout, stderr } = await execFileAsync('sudo', [
       'certbot', 'certonly', '--webroot',
       '-w', '/var/www/html',
       '-d', domain,
@@ -159,11 +160,14 @@ async function tryCertbot(domain) {
       '--non-interactive', '--agree-tos',
       '-m', email
     ]);
-    console.log(`[nginx] certbot: SSL cert obtained for ${domain}`);
-    return true;
+    const output = [stdout, stderr].filter(Boolean).join('\n').trim();
+    console.log(`[nginx] certbot succeeded for ${domain}`);
+    return { success: true, output };
   } catch (err) {
-    console.error(`[nginx] certbot failed for ${domain}: ${err.message}`);
-    return false;
+    // execFile rejects with an Error that has .stdout and .stderr attached
+    const output = [err.stdout, err.stderr, err.message].filter(Boolean).join('\n').trim();
+    console.error(`[nginx] certbot failed for ${domain}:`, output);
+    return { success: false, output };
   }
 }
 
