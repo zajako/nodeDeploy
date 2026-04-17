@@ -303,27 +303,45 @@
             <div class="col-12">
               <div class="card border-secondary">
                 <div class="card-header"><h6 class="mb-0"><i class="bi bi-key me-1"></i>Custom Environment Variables</h6></div>
-                <div class="card-body p-0">
+                <div class="card-body p-2">
+
+                  <!-- Column headers -->
+                  <div class="d-flex gap-2 px-1 mb-1 small text-muted">
+                    <div style="flex:0 0 220px">Key</div>
+                    <div style="flex:1">Value</div>
+                    <div style="width:130px"></div>
+                  </div>
+
+                  <!-- Existing vars -->
                   <% if (envVars && envVars.length > 0) { %>
-                  <table class="table table-dark table-sm mb-0">
-                    <thead>
-                      <tr>
-                        <th class="ps-3">Key</th>
-                        <th>Value</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      <% envVars.forEach(function(ev) { %>
-                      <tr>
-                        <td class="ps-3"><code><%= ev.key_name %></code></td>
-                        <td><span class="text-muted">••••••••</span></td>
-                      </tr>
-                      <% }); %>
-                    </tbody>
-                  </table>
+                  <% envVars.forEach(function(ev) { %>
+                  <div class="d-flex gap-2 align-items-center mb-2">
+                    <form method="POST" action="/admin/projects/<%= project.id %>/env/<%= ev.id %>" class="d-flex gap-2 align-items-center" style="flex:1">
+                      <input type="text" name="key_name" value="<%= ev.key_name %>" class="form-control form-control-sm font-monospace" style="flex:0 0 220px" required pattern="[A-Za-z_][A-Za-z0-9_]*">
+                      <input type="text" name="value" value="<%= ev.value %>" class="form-control form-control-sm font-monospace" style="flex:1">
+                      <button type="submit" class="btn btn-sm btn-primary" style="width:60px">Save</button>
+                    </form>
+                    <form method="POST" action="/admin/projects/<%= project.id %>/env/<%= ev.id %>/delete" onsubmit="return confirm('Delete variable <%= ev.key_name %>?')">
+                      <button type="submit" class="btn btn-sm btn-outline-danger" style="width:64px">Delete</button>
+                    </form>
+                  </div>
+                  <% }); %>
                   <% } else { %>
-                  <div class="text-center text-muted py-4 small">No custom environment variables configured.</div>
+                  <div class="text-center text-muted py-3 small">No custom environment variables yet.</div>
                   <% } %>
+
+                  <!-- Add new var -->
+                  <hr class="border-secondary my-2">
+                  <form method="POST" action="/admin/projects/<%= project.id %>/env">
+                    <div class="d-flex gap-2 align-items-center">
+                      <input type="text" name="key_name" placeholder="KEY_NAME" class="form-control form-control-sm font-monospace" style="flex:0 0 220px" required pattern="[A-Za-z_][A-Za-z0-9_]*">
+                      <input type="text" name="value" placeholder="value" class="form-control form-control-sm font-monospace" style="flex:1">
+                      <button type="submit" class="btn btn-sm btn-success" style="width:60px">Add</button>
+                      <div style="width:64px"></div>
+                    </div>
+                    <div class="text-muted small mt-1 ps-1">Changes regenerate the project's <code>.env</code> and restart the process automatically.</div>
+                  </form>
+
                 </div>
               </div>
             </div>
@@ -429,6 +447,16 @@
 document.querySelectorAll('time[data-ts]').forEach(function (el) {
   el.textContent = new Date(el.dataset.ts).toLocaleString();
 });
+
+// Activate tab from ?tab= query param (e.g. after env var save redirect)
+(function () {
+  const params = new URLSearchParams(window.location.search);
+  const tab = params.get('tab');
+  if (tab) {
+    const btn = document.querySelector('[data-bs-target="#' + tab + 'Tab"]');
+    if (btn) { bootstrap.Tab.getOrCreateInstance(btn).show(); }
+  }
+}());
 
 (function () {
   const PROJECT_ID   = '<%= project.id %>';

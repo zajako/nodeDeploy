@@ -364,6 +364,137 @@ router.get('/projects/:id/logs', async (req, res, next) => {
 });
 
 // -----------------------------------------------------------------------
+// Shared helper: rebuild .env and restart after an env-var change
+// -----------------------------------------------------------------------
+async function rebuildEnvAndRestart(project) {
+  const dbRows = await query('SELECT * FROM project_databases WHERE project_id = ?', [project.id]);
+  const envVarRows = await query('SELECT key_name, value FROM project_env_vars WHERE project_id = ?', [project.id]);
+  const customEnvVars = {};
+  for (const row of envVarRows) customEnvVars[row.key_name] = row.value || '';
+  await deployService.generateEnvFile(project, dbRows[0] || null, customEnvVars);
+  await deployService.restartProject(project);
+}
+
+// -----------------------------------------------------------------------
+// POST /admin/projects/:id/env — add a new environment variable
+// -----------------------------------------------------------------------
+router.post('/projects/:id/env', async (req, res, next) => {
+  try {
+    const projects = await query('SELECT * FROM projects WHERE id = ?', [req.params.id]);
+    if (!projects.length) {
+      req.flash('error', 'Project not found.');
+      return res.redirect('/admin/projects');
+    }
+    const project = projects[0];
+
+    const { key_name, value } = req.body;
+    if (!key_name || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(key_name)) {
+      req.flash('error', 'Invalid variable name. Use letters, numbers, and underscores only (must not start with a digit).');
+      return res.redirect(`/admin/projects/${project.id}?tab=env`);
+    }
+
+    const existing = await query('SELECT id FROM project_env_vars WHERE project_id = ? AND key_name = ?', [project.id, key_name]);
+    if (existing.length) {
+      req.flash('error', `Variable "${key_name}" already exists. Edit the existing row.`);
+      return res.redirect(`/admin/projects/${project.id}?tab=env`);
+    }
+
+    await query('INSERT INTO project_env_vars (project_id, key_name, value) VALUES (?, ?, ?)', [project.id, key_name, value || '']);
+
+    try {
+      await rebuildEnvAndRestart(project);
+      req.flash('success', `Variable "${key_name}" added and project restarted.`);
+    } catch {
+      req.flash('info', `Variable "${key_name}" added. Project could not be restarted automatically.`);
+    }
+    res.redirect(`/admin/projects/${project.id}?tab=env`);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// -----------------------------------------------------------------------
+// POST /admin/projects/:id/env/:varId — update an environment variable
+// -----------------------------------------------------------------------
+router.post('/projects/:id/env/:varId', async (req, res, next) => {
+  try {
+    const projects = await query('SELECT * FROM projects WHERE id = ?', [req.params.id]);
+    if (!projects.length) {
+      req.flash('error', 'Project not found.');
+      return res.redirect('/admin/projects');
+    }
+    const project = projects[0];
+
+    const { key_name, value } = req.body;
+    if (!key_name || !/^[A-Za-z_][A-Za-z0-9_]*$/.test(key_name)) {
+      req.flash('error', 'Invalid variable name.');
+      return res.redirect(`/admin/projects/${project.id}?tab=env`);
+    }
+
+    const rows = await query('SELECT id FROM project_env_vars WHERE id = ? AND project_id = ?', [req.params.varId, project.id]);
+    if (!rows.length) {
+      req.flash('error', 'Variable not found.');
+      return res.redirect(`/admin/projects/${project.id}?tab=env`);
+    }
+
+    // Check uniqueness if the key was renamed
+    const conflict = await query(
+      'SELECT id FROM project_env_vars WHERE project_id = ? AND key_name = ? AND id != ?',
+      [project.id, key_name, req.params.varId]
+    );
+    if (conflict.length) {
+      req.flash('error', `Another variable named "${key_name}" already exists.`);
+      return res.redirect(`/admin/projects/${project.id}?tab=env`);
+    }
+
+    await query('UPDATE project_env_vars SET key_name = ?, value = ? WHERE id = ?', [key_name, value || '', req.params.varId]);
+
+    try {
+      await rebuildEnvAndRestart(project);
+      req.flash('success', `Variable "${key_name}" updated and project restarted.`);
+    } catch {
+      req.flash('info', `Variable "${key_name}" updated. Project could not be restarted automatically.`);
+    }
+    res.redirect(`/admin/projects/${project.id}?tab=env`);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// -----------------------------------------------------------------------
+// POST /admin/projects/:id/env/:varId/delete — delete an environment variable
+// -----------------------------------------------------------------------
+router.post('/projects/:id/env/:varId/delete', async (req, res, next) => {
+  try {
+    const projects = await query('SELECT * FROM projects WHERE id = ?', [req.params.id]);
+    if (!projects.length) {
+      req.flash('error', 'Project not found.');
+      return res.redirect('/admin/projects');
+    }
+    const project = projects[0];
+
+    const rows = await query('SELECT key_name FROM project_env_vars WHERE id = ? AND project_id = ?', [req.params.varId, project.id]);
+    if (!rows.length) {
+      req.flash('error', 'Variable not found.');
+      return res.redirect(`/admin/projects/${project.id}?tab=env`);
+    }
+    const { key_name } = rows[0];
+
+    await query('DELETE FROM project_env_vars WHERE id = ?', [req.params.varId]);
+
+    try {
+      await rebuildEnvAndRestart(project);
+      req.flash('success', `Variable "${key_name}" deleted and project restarted.`);
+    } catch {
+      req.flash('info', `Variable "${key_name}" deleted. Project could not be restarted automatically.`);
+    }
+    res.redirect(`/admin/projects/${project.id}?tab=env`);
+  } catch (err) {
+    next(err);
+  }
+});
+
+// -----------------------------------------------------------------------
 // POST /admin/projects/:id/database — add or update linked MySQL database
 // -----------------------------------------------------------------------
 router.post('/projects/:id/database', async (req, res, next) => {
