@@ -392,9 +392,7 @@ async function pullAndRedeploy(project) {
     }
 
     await addLog(project.id, 'deploy', `Fetching latest from branch ${project.branch}...`);
-    // Fetch the specific branch and create/update the remote-tracking ref so
-    // reset --hard can reference it even on a shallow clone.
-    await git.fetch(['origin', `${project.branch}:refs/remotes/origin/${project.branch}`, '--depth', '50']);
+    await git.fetch(['--depth', '50', 'origin', project.branch]);
     await git.reset(['--hard', `origin/${project.branch}`]);
     await addLog(project.id, 'deploy', 'Fetch and reset complete.');
 
