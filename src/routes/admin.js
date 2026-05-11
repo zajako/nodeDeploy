@@ -2,10 +2,20 @@
 
 const express = require('express');
 const router = express.Router();
+const path = require('path');
+const os = require('os');
+const { execFile } = require('child_process');
+const { promisify } = require('util');
+const execFileAsync = promisify(execFile);
 const { isAdmin } = require('../middleware/auth');
 const { query } = require('../config/database');
 const deployService = require('../services/deployService');
 const { generateNginxConfig, tryCertbot } = require('../services/nginxService');
+
+// PM2 log directory (respects PM2_HOME env var)
+const PM2_LOGS_DIR = process.env.PM2_HOME
+  ? path.join(process.env.PM2_HOME, 'logs')
+  : path.join(os.homedir(), '.pm2', 'logs');
 
 // Apply isAdmin to all admin routes
 router.use(isAdmin);
@@ -358,6 +368,41 @@ router.get('/projects/:id/logs', async (req, res, next) => {
       [req.params.id]
     );
     res.json({ logs });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// -----------------------------------------------------------------------
+// GET /admin/projects/:id/runtime-logs — tail PM2 stdout/stderr log files
+// -----------------------------------------------------------------------
+router.get('/projects/:id/runtime-logs', async (req, res, next) => {
+  try {
+    const projects = await query('SELECT name FROM projects WHERE id = ?', [req.params.id]);
+    if (!projects.length) return res.status(404).json({ error: 'Not found' });
+
+    const name  = projects[0].name;
+    const lines = Math.min(Math.max(parseInt(req.query.lines) || 200, 10), 1000);
+
+    async function tailLog(filename) {
+      const filePath = path.join(PM2_LOGS_DIR, filename);
+      try {
+        const { stdout } = await execFileAsync('tail', ['-n', String(lines), filePath]);
+        return stdout;
+      } catch (err) {
+        if (err.code === 'ENOENT' || (err.stderr && err.stderr.includes('No such file'))) {
+          return '';
+        }
+        return `(Error reading log: ${err.message})`;
+      }
+    }
+
+    const [out, err] = await Promise.all([
+      tailLog(`${name}-out.log`),
+      tailLog(`${name}-error.log`)
+    ]);
+
+    res.json({ out, err });
   } catch (err) {
     next(err);
   }

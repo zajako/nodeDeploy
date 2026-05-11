@@ -90,6 +90,11 @@
             <i class="bi bi-journal-text me-1"></i>Logs
           </button>
         </li>
+        <li class="nav-item">
+          <button class="nav-link" data-bs-toggle="tab" data-bs-target="#appLogsTab" id="appLogsTabBtn">
+            <i class="bi bi-terminal me-1"></i>App Logs
+          </button>
+        </li>
       </ul>
 
       <div class="tab-content">
@@ -405,6 +410,36 @@
           </div>
         </div>
 
+        <!-- App Logs Tab -->
+        <div class="tab-pane fade" id="appLogsTab">
+          <div class="card border-secondary">
+            <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
+              <h6 class="mb-0"><i class="bi bi-terminal me-1"></i>PM2 App Logs</h6>
+              <div class="d-flex align-items-center gap-2">
+                <div class="btn-group btn-group-sm" role="group">
+                  <button id="btnAppLogsOut" type="button" class="btn btn-primary py-0 px-2 active">stdout</button>
+                  <button id="btnAppLogsErr" type="button" class="btn btn-outline-secondary py-0 px-2">stderr</button>
+                </div>
+                <select id="appLogsLines" class="form-select form-select-sm py-0" style="width:90px">
+                  <option value="100">100 lines</option>
+                  <option value="200" selected>200 lines</option>
+                  <option value="500">500 lines</option>
+                </select>
+                <span class="text-muted small" id="appLogsStatus">–</span>
+                <button id="btnAppLogsRefresh" class="btn btn-sm btn-outline-secondary py-0 px-2" title="Refresh now">
+                  <i class="bi bi-arrow-clockwise"></i>
+                </button>
+                <button id="btnAppLogsAuto" class="btn btn-sm btn-success py-0 px-2" title="Auto-refresh on">
+                  <i class="bi bi-pause-fill me-1"></i>Auto
+                </button>
+              </div>
+            </div>
+            <div class="card-body p-0">
+              <pre id="appLogsContainer" class="mb-0 p-3 small" style="background:#0d1117;color:#c9d1d9;max-height:600px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;">Loading…</pre>
+            </div>
+          </div>
+        </div>
+
       </div><!-- /tab-content -->
 
     </div>
@@ -597,6 +632,111 @@ document.querySelectorAll('time[data-ts]').forEach(function (el) {
         logsTabActive = false;
         stopAuto();
         STATUS_EL.textContent = '–';
+      }
+    });
+  });
+}());
+
+// ── App Logs (PM2 stdout / stderr) ───────────────────────────────────────────
+(function () {
+  const PROJECT_ID  = '<%= project.id %>';
+  const INTERVAL_MS = 3000;
+  const container   = document.getElementById('appLogsContainer');
+  const statusEl    = document.getElementById('appLogsStatus');
+  const linesSelect = document.getElementById('appLogsLines');
+  const btnOut      = document.getElementById('btnAppLogsOut');
+  const btnErr      = document.getElementById('btnAppLogsErr');
+  const btnRefresh  = document.getElementById('btnAppLogsRefresh');
+  const btnAuto     = document.getElementById('btnAppLogsAuto');
+
+  let activeStream = 'out';
+  let autoEnabled  = true;
+  let tabActive    = false;
+  let timer        = null;
+  let lastData     = { out: '', err: '' };
+
+  function escHtml(s) {
+    return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+  }
+
+  function render() {
+    const raw = lastData[activeStream] || '';
+    container.innerHTML = raw
+      ? escHtml(raw)
+      : '<span class="text-muted">No output yet.</span>';
+    container.scrollTop = container.scrollHeight;
+  }
+
+  async function fetchAppLogs() {
+    const lines = linesSelect.value;
+    try {
+      const res  = await fetch(`/admin/projects/${PROJECT_ID}/runtime-logs?lines=${lines}`);
+      const data = await res.json();
+      lastData = { out: data.out || '', err: data.err || '' };
+      render();
+      statusEl.textContent = 'Updated ' + new Date().toLocaleTimeString();
+    } catch {
+      statusEl.textContent = 'Fetch failed – ' + new Date().toLocaleTimeString();
+    }
+  }
+
+  function startAuto() {
+    if (timer) return;
+    fetchAppLogs();
+    timer = setInterval(fetchAppLogs, INTERVAL_MS);
+  }
+
+  function stopAuto() {
+    clearInterval(timer);
+    timer = null;
+  }
+
+  // Stream toggle
+  btnOut.addEventListener('click', () => {
+    activeStream = 'out';
+    btnOut.classList.replace('btn-outline-secondary', 'btn-primary');
+    btnErr.classList.replace('btn-primary', 'btn-outline-secondary');
+    render();
+  });
+  btnErr.addEventListener('click', () => {
+    activeStream = 'err';
+    btnErr.classList.replace('btn-outline-secondary', 'btn-primary');
+    btnOut.classList.replace('btn-primary', 'btn-outline-secondary');
+    render();
+  });
+
+  // Auto toggle
+  btnAuto.addEventListener('click', () => {
+    autoEnabled = !autoEnabled;
+    if (autoEnabled) {
+      btnAuto.className = 'btn btn-sm btn-success py-0 px-2';
+      btnAuto.innerHTML = '<i class="bi bi-pause-fill me-1"></i>Auto';
+      if (tabActive) startAuto();
+    } else {
+      btnAuto.className = 'btn btn-sm btn-outline-secondary py-0 px-2';
+      btnAuto.innerHTML = '<i class="bi bi-play-fill me-1"></i>Manual';
+      stopAuto();
+    }
+  });
+
+  btnRefresh.addEventListener('click', fetchAppLogs);
+  linesSelect.addEventListener('change', fetchAppLogs);
+
+  document.addEventListener('visibilitychange', () => {
+    if (!tabActive) return;
+    document.hidden ? stopAuto() : (autoEnabled && startAuto());
+  });
+
+  document.getElementById('appLogsTabBtn').addEventListener('click', () => {
+    tabActive = true;
+    if (autoEnabled && !document.hidden) startAuto();
+  });
+
+  document.querySelectorAll('[data-bs-toggle="tab"]').forEach(tab => {
+    tab.addEventListener('click', function () {
+      if (this.id !== 'appLogsTabBtn') {
+        tabActive = false;
+        stopAuto();
       }
     });
   });
