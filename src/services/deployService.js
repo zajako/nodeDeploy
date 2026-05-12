@@ -6,6 +6,7 @@ const path = require('path');
 const fs = require('fs').promises;
 const { execFile } = require('child_process');
 const { promisify } = require('util');
+const dotenv = require('dotenv');
 const simpleGit = require('simple-git');
 const pm2 = require('pm2');
 const { v4: uuidv4 } = require('uuid');
@@ -145,6 +146,19 @@ async function generateEnvFile(project, dbCredentials = null, customEnvVars = {}
   await fs.writeFile(envPath, envContent, 'utf8');
 
   return envPath;
+}
+
+// -------------------------------------------------------------------------
+// Read the project's generated .env file and return it as a plain object
+// so we can pass all vars directly to PM2 (avoiding parent-env bleed-through).
+// -------------------------------------------------------------------------
+async function readProjectEnv(project) {
+  try {
+    const content = await fs.readFile(path.join(project.deploy_path, '.env'), 'utf8');
+    return dotenv.parse(content);
+  } catch {
+    return {};
+  }
 }
 
 // -------------------------------------------------------------------------
@@ -305,15 +319,13 @@ async function deployProject(project, accessToken, dbCredentials = null, customE
         ? undefined
         : ['start'];
 
+      const projectEnv = await readProjectEnv(project);
       await pm2Start({
         name: project.name,
         script: startScript,
         args: startArgs,
         cwd: project.deploy_path,
-        env: {
-          NODE_ENV: 'production',
-          PORT: String(project.port)
-        },
+        env: { NODE_ENV: 'production', PORT: String(project.port), ...projectEnv },
         watch: false,
         autorestart: true,
         max_restarts: 10,
@@ -417,6 +429,7 @@ async function pullAndRedeploy(project) {
     await addLog(project.id, 'deploy', 'Restarting PM2 process...');
     await pm2Connect();
     try {
+      const projectEnvR = await readProjectEnv(project);
       await pm2Restart(project.name).catch(async () => {
         // If not running, start it
         await pm2Delete(project.name).catch(() => {});
@@ -429,7 +442,7 @@ async function pullAndRedeploy(project) {
             ? undefined
             : ['start'],
           cwd: project.deploy_path,
-          env: { NODE_ENV: 'production', PORT: String(project.port) },
+          env: { NODE_ENV: 'production', PORT: String(project.port), ...projectEnvR },
           watch: false,
           autorestart: true,
           log_date_format: 'YYYY-MM-DD HH:mm:ss'
@@ -474,6 +487,7 @@ async function startProject(project) {
   await pm2Connect();
   try {
     // Try restart first, then start
+    const projectEnvS = await readProjectEnv(project);
     await pm2Restart(project.name).catch(async () => {
       await pm2Start({
         name: project.name,
@@ -484,7 +498,7 @@ async function startProject(project) {
           ? undefined
           : ['start'],
         cwd: project.deploy_path,
-        env: { NODE_ENV: 'production', PORT: String(project.port) },
+        env: { NODE_ENV: 'production', PORT: String(project.port), ...projectEnvS },
         watch: false,
         autorestart: true,
         log_date_format: 'YYYY-MM-DD HH:mm:ss'
@@ -502,9 +516,23 @@ async function startProject(project) {
 // -------------------------------------------------------------------------
 async function restartProject(project) {
   await addLog(project.id, 'info', 'Restarting project...');
+  const projectEnv = await readProjectEnv(project);
   await pm2Connect();
   try {
-    await pm2Restart(project.name);
+    // Delete and recreate so PM2 config (log_date_format, env vars) are always applied
+    await pm2Delete(project.name).catch(() => {});
+    await pm2Start({
+      name: project.name,
+      script: project.start_command && project.start_command !== 'npm start'
+        ? project.start_command : 'npm',
+      args: project.start_command && project.start_command !== 'npm start'
+        ? undefined : ['start'],
+      cwd: project.deploy_path,
+      env: { NODE_ENV: 'production', PORT: String(project.port), ...projectEnv },
+      watch: false,
+      autorestart: true,
+      log_date_format: 'YYYY-MM-DD HH:mm:ss'
+    });
   } finally {
     await pm2Disconnect();
   }

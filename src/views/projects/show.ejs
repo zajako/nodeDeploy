@@ -417,10 +417,10 @@
         <div class="tab-pane fade" id="appLogsTab">
           <div class="card border-secondary">
             <div class="card-header d-flex flex-wrap justify-content-between align-items-center gap-2">
-              <h6 class="mb-0"><i class="bi bi-terminal me-1"></i>PM2 App Logs</h6>
+              <h6 class="mb-0"><i class="bi bi-terminal me-1"></i>App Logs</h6>
               <div class="d-flex align-items-center gap-2">
                 <div class="btn-group btn-group-sm" role="group">
-                  <button id="btnAppLogsOut" type="button" class="btn btn-primary py-0 px-2 active">stdout</button>
+                  <button id="btnAppLogsOut" type="button" class="btn btn-primary py-0 px-2">stdout</button>
                   <button id="btnAppLogsErr" type="button" class="btn btn-outline-secondary py-0 px-2">stderr</button>
                 </div>
                 <select id="appLogsLines" class="form-select form-select-sm py-0" style="width:90px">
@@ -441,7 +441,14 @@
               </div>
             </div>
             <div class="card-body p-0">
-              <pre id="appLogsContainer" class="mb-0 p-3 small" style="background:#0d1117;color:#c9d1d9;max-height:600px;overflow-y:auto;white-space:pre-wrap;word-break:break-all;">Loading…</pre>
+              <!-- Terminal chrome -->
+              <div style="background:#1c2128;border-bottom:1px solid #30363d;padding:7px 14px;display:flex;align-items:center;gap:7px;">
+                <span style="width:13px;height:13px;border-radius:50%;background:#ff5f57;flex-shrink:0;display:inline-block;"></span>
+                <span style="width:13px;height:13px;border-radius:50%;background:#febc2e;flex-shrink:0;display:inline-block;"></span>
+                <span style="width:13px;height:13px;border-radius:50%;background:#28c840;flex-shrink:0;display:inline-block;"></span>
+                <span style="font-family:monospace;font-size:12px;color:#8b949e;margin-left:6px;"><%= project.name %> — <span id="appLogsStreamLabel">stdout</span></span>
+              </div>
+              <pre id="appLogsContainer" class="app-logs-pre mb-0">Loading…</pre>
             </div>
           </div>
         </div>
@@ -482,6 +489,26 @@
     </div>
   </div>
 </div>
+
+<style>
+.app-logs-pre {
+  background: #0d1117;
+  color: #e6edf3;
+  font-family: 'SFMono-Regular', 'Cascadia Code', 'Fira Code', Consolas, 'Liberation Mono', Menlo, monospace;
+  font-size: 12.5px;
+  line-height: 1.65;
+  max-height: 580px;
+  overflow-y: auto;
+  white-space: pre-wrap;
+  word-break: break-all;
+  padding: 14px 16px;
+  border-radius: 0 0 var(--bs-card-border-radius) var(--bs-card-border-radius);
+}
+.app-logs-pre::-webkit-scrollbar { width: 8px; }
+.app-logs-pre::-webkit-scrollbar-track { background: #0d1117; }
+.app-logs-pre::-webkit-scrollbar-thumb { background: #30363d; border-radius: 4px; }
+.app-logs-pre::-webkit-scrollbar-thumb:hover { background: #484f58; }
+</style>
 
 <script>
 // Convert all server-rendered timestamps to the viewer's local timezone
@@ -658,11 +685,12 @@ document.querySelectorAll('time[data-ts]').forEach(function (el) {
   const btnRefresh  = document.getElementById('btnAppLogsRefresh');
   const btnAuto     = document.getElementById('btnAppLogsAuto');
 
-  let activeStream = 'out';
-  let autoEnabled  = true;
-  let tabActive    = false;
-  let timer        = null;
-  let lastData     = { out: '', err: '' };
+  let activeStream  = 'out';
+  let autoEnabled   = true;
+  let tabActive     = false;
+  let timer         = null;
+  let lastData      = { out: '', err: '' };
+  let lastRendered  = { out: null, err: null };
 
   function escHtml(s) {
     return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -670,10 +698,23 @@ document.querySelectorAll('time[data-ts]').forEach(function (el) {
 
   function render() {
     const raw = lastData[activeStream] || '';
+
+    // Don't clobber an active text selection inside the terminal
+    const sel = window.getSelection();
+    if (sel && !sel.isCollapsed && container.contains(sel.anchorNode)) return;
+
+    // Skip DOM write if content hasn't changed
+    if (raw === lastRendered[activeStream]) return;
+    lastRendered[activeStream] = raw;
+
+    // Only auto-scroll if already near the bottom
+    const atBottom = container.scrollHeight - container.scrollTop - container.clientHeight < 80;
+
     container.innerHTML = raw
       ? escHtml(raw)
-      : '<span class="text-muted">No output yet.</span>';
-    container.scrollTop = container.scrollHeight;
+      : '<span style="color:#6e7681;font-style:italic">No output yet.</span>';
+
+    if (atBottom) container.scrollTop = container.scrollHeight;
   }
 
   async function fetchAppLogs() {
@@ -705,12 +746,16 @@ document.querySelectorAll('time[data-ts]').forEach(function (el) {
     activeStream = 'out';
     btnOut.classList.replace('btn-outline-secondary', 'btn-primary');
     btnErr.classList.replace('btn-primary', 'btn-outline-secondary');
+    document.getElementById('appLogsStreamLabel').textContent = 'stdout';
+    lastRendered[activeStream] = null; // force re-render on switch
     render();
   });
   btnErr.addEventListener('click', () => {
     activeStream = 'err';
     btnErr.classList.replace('btn-outline-secondary', 'btn-primary');
     btnOut.classList.replace('btn-primary', 'btn-outline-secondary');
+    document.getElementById('appLogsStreamLabel').textContent = 'stderr';
+    lastRendered[activeStream] = null;
     render();
   });
 
@@ -734,7 +779,12 @@ document.querySelectorAll('time[data-ts]').forEach(function (el) {
   document.getElementById('btnClearAppLogs').addEventListener('click', () => {
     if (!confirm('Clear PM2 stdout and stderr logs for this app?')) return;
     fetch(`/admin/projects/${PROJECT_ID}/runtime-logs/clear`, { method: 'POST' })
-      .then(() => { lastData = { out: '', err: '' }; render(); statusEl.textContent = 'Logs cleared'; });
+      .then(() => {
+        lastData     = { out: '', err: '' };
+        lastRendered = { out: null, err: null };
+        render();
+        statusEl.textContent = 'Logs cleared';
+      });
   });
 
   document.addEventListener('visibilitychange', () => {
