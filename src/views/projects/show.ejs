@@ -367,6 +367,9 @@
                 <button id="btnToggleAuto" class="btn btn-sm btn-success py-0 px-2" title="Auto-refresh on">
                   <i class="bi bi-pause-fill me-1"></i>Auto
                 </button>
+                <button id="btnClearDeployLogs" class="btn btn-sm btn-outline-danger py-0 px-2" title="Clear deploy logs">
+                  <i class="bi bi-trash"></i>
+                </button>
               </div>
             </div>
             <div class="card-body p-0">
@@ -431,6 +434,9 @@
                 </button>
                 <button id="btnAppLogsAuto" class="btn btn-sm btn-success py-0 px-2" title="Auto-refresh on">
                   <i class="bi bi-pause-fill me-1"></i>Auto
+                </button>
+                <button id="btnClearAppLogs" class="btn btn-sm btn-outline-danger py-0 px-2" title="Clear app logs">
+                  <i class="bi bi-trash"></i>
                 </button>
               </div>
             </div>
@@ -602,12 +608,15 @@ document.querySelectorAll('time[data-ts]').forEach(function (el) {
   REFRESH_BTN.addEventListener('click', () => {
     STATUS_EL.textContent = 'Refreshing…';
     fetchLogs().then(() => {
-      // Reset countdown if auto is running
-      if (autoEnabled && logsTabActive) {
-        stopAuto();
-        startAuto();
-      }
+      if (autoEnabled && logsTabActive) { stopAuto(); startAuto(); }
     });
+  });
+
+  // ── Clear deploy logs ─────────────────────────────────────────
+  document.getElementById('btnClearDeployLogs').addEventListener('click', () => {
+    if (!confirm('Clear all deploy logs for this project?')) return;
+    fetch(`/admin/projects/${PROJECT_ID}/logs/clear`, { method: 'POST' })
+      .then(() => fetchLogs());
   });
 
   // ── Pause when browser tab is hidden, resume on focus ─────────
@@ -721,6 +730,12 @@ document.querySelectorAll('time[data-ts]').forEach(function (el) {
 
   btnRefresh.addEventListener('click', fetchAppLogs);
   linesSelect.addEventListener('change', fetchAppLogs);
+
+  document.getElementById('btnClearAppLogs').addEventListener('click', () => {
+    if (!confirm('Clear PM2 stdout and stderr logs for this app?')) return;
+    fetch(`/admin/projects/${PROJECT_ID}/runtime-logs/clear`, { method: 'POST' })
+      .then(() => { lastData = { out: '', err: '' }; render(); statusEl.textContent = 'Logs cleared'; });
+  });
 
   document.addEventListener('visibilitychange', () => {
     if (!tabActive) return;

@@ -374,6 +374,18 @@ router.get('/projects/:id/logs', async (req, res, next) => {
 });
 
 // -----------------------------------------------------------------------
+// POST /admin/projects/:id/logs/clear — delete all deploy logs for project
+// -----------------------------------------------------------------------
+router.post('/projects/:id/logs/clear', async (req, res, next) => {
+  try {
+    await query('DELETE FROM deploy_logs WHERE project_id = ?', [req.params.id]);
+    res.json({ ok: true });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// -----------------------------------------------------------------------
 // GET /admin/projects/:id/runtime-logs — tail PM2 stdout/stderr log files
 // -----------------------------------------------------------------------
 router.get('/projects/:id/runtime-logs', async (req, res, next) => {
@@ -403,6 +415,36 @@ router.get('/projects/:id/runtime-logs', async (req, res, next) => {
     ]);
 
     res.json({ out, err });
+  } catch (err) {
+    next(err);
+  }
+});
+
+// -----------------------------------------------------------------------
+// POST /admin/projects/:id/runtime-logs/clear — truncate PM2 log files
+// -----------------------------------------------------------------------
+router.post('/projects/:id/runtime-logs/clear', async (req, res, next) => {
+  try {
+    const projects = await query('SELECT name FROM projects WHERE id = ?', [req.params.id]);
+    if (!projects.length) return res.status(404).json({ error: 'Not found' });
+
+    const name = projects[0].name;
+
+    async function truncateLog(filename) {
+      const filePath = path.join(PM2_LOGS_DIR, filename);
+      try {
+        await execFileAsync('truncate', ['-s', '0', filePath]);
+      } catch {
+        // File may not exist yet — ignore
+      }
+    }
+
+    await Promise.all([
+      truncateLog(`${name}-out.log`),
+      truncateLog(`${name}-error.log`)
+    ]);
+
+    res.json({ ok: true });
   } catch (err) {
     next(err);
   }

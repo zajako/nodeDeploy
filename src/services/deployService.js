@@ -317,7 +317,8 @@ async function deployProject(project, accessToken, dbCredentials = null, customE
         watch: false,
         autorestart: true,
         max_restarts: 10,
-        min_uptime: '10s'
+        min_uptime: '10s',
+        log_date_format: 'YYYY-MM-DD HH:mm:ss'
       });
     } finally {
       await pm2Disconnect();
@@ -430,7 +431,8 @@ async function pullAndRedeploy(project) {
           cwd: project.deploy_path,
           env: { NODE_ENV: 'production', PORT: String(project.port) },
           watch: false,
-          autorestart: true
+          autorestart: true,
+          log_date_format: 'YYYY-MM-DD HH:mm:ss'
         });
       });
     } finally {
@@ -484,7 +486,8 @@ async function startProject(project) {
         cwd: project.deploy_path,
         env: { NODE_ENV: 'production', PORT: String(project.port) },
         watch: false,
-        autorestart: true
+        autorestart: true,
+        log_date_format: 'YYYY-MM-DD HH:mm:ss'
       });
     });
   } finally {
