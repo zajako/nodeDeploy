@@ -146,6 +146,21 @@ app.use((err, req, res, next) => {
 });
 
 // -------------------------------------------------------------------------
+// Security: strip portal-private vars from process.env
+// All modules above have already captured their values into module-level
+// constants. Removing these now ensures that if PM2 forks its daemon from
+// this process, the daemon will NOT inherit the portal's credentials and
+// cannot pass them to deployed apps.
+// -------------------------------------------------------------------------
+const PORTAL_PRIVATE_KEYS = [
+  'DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD',
+  'SESSION_SECRET',
+  'GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET', 'GITHUB_CALLBACK_URL',
+  'ADMIN_GITHUB_USERNAMES'
+];
+for (const key of PORTAL_PRIVATE_KEYS) delete process.env[key];
+
+// -------------------------------------------------------------------------
 // Start server
 // -------------------------------------------------------------------------
 const PORT = parseInt(process.env.PORT || '3000', 10);

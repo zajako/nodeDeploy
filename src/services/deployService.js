@@ -148,6 +148,17 @@ async function generateEnvFile(project, dbCredentials = null, customEnvVars = {}
   return envPath;
 }
 
+// Portal-private keys that must never reach deployed apps.
+// We pass these explicitly to every pm2Start call so that even a PM2 daemon
+// that was already running (and may have inherited the portal's env) cannot
+// bleed these values into child processes.
+const PORTAL_PRIVATE_KEYS = [
+  'DB_HOST', 'DB_PORT', 'DB_NAME', 'DB_USER', 'DB_PASSWORD',
+  'SESSION_SECRET',
+  'GITHUB_CLIENT_ID', 'GITHUB_CLIENT_SECRET', 'GITHUB_CALLBACK_URL',
+  'ADMIN_GITHUB_USERNAMES'
+];
+
 // -------------------------------------------------------------------------
 // Read the project's generated .env file and return it as a plain object
 // so we can pass all vars directly to PM2 (avoiding parent-env bleed-through).
@@ -159,6 +170,23 @@ async function readProjectEnv(project) {
   } catch {
     return {};
   }
+}
+
+// -------------------------------------------------------------------------
+// Build a clean env object to pass to pm2Start.
+// Starts with cleared portal-private vars (so daemon-env bleed is overridden
+// even if the daemon was forked before app.js cleaned process.env), then
+// overlays the project's own .env vars so they always win.
+// -------------------------------------------------------------------------
+async function buildPm2Env(project) {
+  const cleared = Object.fromEntries(PORTAL_PRIVATE_KEYS.map(k => [k, '']));
+  const projectEnv = await readProjectEnv(project);
+  return {
+    ...cleared,
+    NODE_ENV: 'production',
+    PORT: String(project.port),
+    ...projectEnv   // project vars override cleared values and explicit defaults
+  };
 }
 
 // -------------------------------------------------------------------------
@@ -319,13 +347,12 @@ async function deployProject(project, accessToken, dbCredentials = null, customE
         ? undefined
         : ['start'];
 
-      const projectEnv = await readProjectEnv(project);
       await pm2Start({
         name: project.name,
         script: startScript,
         args: startArgs,
         cwd: project.deploy_path,
-        env: { NODE_ENV: 'production', PORT: String(project.port), ...projectEnv },
+        env: await buildPm2Env(project),
         watch: false,
         autorestart: true,
         max_restarts: 10,
@@ -429,7 +456,7 @@ async function pullAndRedeploy(project) {
     await addLog(project.id, 'deploy', 'Restarting PM2 process...');
     await pm2Connect();
     try {
-      const projectEnvR = await readProjectEnv(project);
+      const pm2EnvR = await buildPm2Env(project);
       await pm2Restart(project.name).catch(async () => {
         // If not running, start it
         await pm2Delete(project.name).catch(() => {});
@@ -442,7 +469,7 @@ async function pullAndRedeploy(project) {
             ? undefined
             : ['start'],
           cwd: project.deploy_path,
-          env: { NODE_ENV: 'production', PORT: String(project.port), ...projectEnvR },
+          env: pm2EnvR,
           watch: false,
           autorestart: true,
           log_date_format: 'YYYY-MM-DD HH:mm:ss'
@@ -487,7 +514,7 @@ async function startProject(project) {
   await pm2Connect();
   try {
     // Try restart first, then start
-    const projectEnvS = await readProjectEnv(project);
+    const pm2EnvS = await buildPm2Env(project);
     await pm2Restart(project.name).catch(async () => {
       await pm2Start({
         name: project.name,
@@ -498,7 +525,7 @@ async function startProject(project) {
           ? undefined
           : ['start'],
         cwd: project.deploy_path,
-        env: { NODE_ENV: 'production', PORT: String(project.port), ...projectEnvS },
+        env: pm2EnvS,
         watch: false,
         autorestart: true,
         log_date_format: 'YYYY-MM-DD HH:mm:ss'
@@ -516,7 +543,7 @@ async function startProject(project) {
 // -------------------------------------------------------------------------
 async function restartProject(project) {
   await addLog(project.id, 'info', 'Restarting project...');
-  const projectEnv = await readProjectEnv(project);
+  const pm2Env = await buildPm2Env(project);
   await pm2Connect();
   try {
     // Delete and recreate so PM2 config (log_date_format, env vars) are always applied
@@ -528,7 +555,7 @@ async function restartProject(project) {
       args: project.start_command && project.start_command !== 'npm start'
         ? undefined : ['start'],
       cwd: project.deploy_path,
-      env: { NODE_ENV: 'production', PORT: String(project.port), ...projectEnv },
+      env: pm2Env,
       watch: false,
       autorestart: true,
       log_date_format: 'YYYY-MM-DD HH:mm:ss'
