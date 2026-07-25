@@ -179,6 +179,22 @@ sudo certbot --nginx -d yourdomain.com -d www.yourdomain.com
 
 #### Wildcard cert for project subdomains (DNS challenge — required for wildcards)
 
+**Preferred: use a certbot DNS plugin so the wildcard cert auto-renews.** With a plugin, certbot can publish the DNS TXT record itself, so the portal's renewal scheduler keeps the cert current with no manual steps. Example for Cloudflare:
+
+```bash
+sudo apt install python3-certbot-dns-cloudflare
+# Create /root/.secrets/cloudflare.ini containing:
+#   dns_cloudflare_api_token = <token with Zone:DNS:Edit for your zone>
+sudo chmod 600 /root/.secrets/cloudflare.ini
+sudo certbot certonly --dns-cloudflare \
+  --dns-cloudflare-credentials /root/.secrets/cloudflare.ini \
+  -d yourdomain.com -d '*.yourdomain.com'
+```
+
+Plugins exist for most providers (`python3-certbot-dns-route53`, `-google`, `-digitalocean`, ...). If your DNS provider has no plugin, [acme.sh](https://github.com/acmesh-official/acme.sh) supports many more via its DNS API mode.
+
+**Fallback: manual DNS challenge (does NOT auto-renew):**
+
 ```bash
 sudo certbot certonly --manual --preferred-challenges dns \
   -d yourdomain.com -d '*.yourdomain.com'
@@ -192,7 +208,11 @@ _acme-challenge.yourdomain.com
 with the following value: <token>
 ```
 
-Add the TXT record at your DNS provider, wait ~60 seconds, then press Enter. Note the path certbot prints — it may be `yourdomain.com-0001` rather than `yourdomain.com`. Set `WILDCARD_CERT_PATH` in `.env` to that exact path.
+Add the TXT record at your DNS provider, wait ~60 seconds, then press Enter.
+
+> **Warning:** certs obtained with `--manual` are skipped by `certbot renew` — certbot has no way to publish the TXT record on its own. The cert will hard-expire after 90 days and every project subdomain will show a certificate error until you re-run the command above. The portal logs a warning on the dashboard when this cert is within 14 days of expiry. Switch to a DNS plugin to make renewal automatic.
+
+Note the path certbot prints — it may be `yourdomain.com-0001` rather than `yourdomain.com`. Set `WILDCARD_CERT_PATH` in `.env` to that exact path.
 
 Once both certs are in place, set `COOKIE_SECURE=true` in `.env`.
 
@@ -303,6 +323,7 @@ nodedeploy/
 | `WILDCARD_CERT_PATH` | No | — | Full path to wildcard cert directory (e.g. `/etc/letsencrypt/live/yourdomain.com-0001`) |
 | `WILDCARD_CERT_DOMAIN` | No | — | Alternative to `WILDCARD_CERT_PATH` — derives path as `/etc/letsencrypt/live/<domain>` |
 | `CERTBOT_EMAIL` | No | — | Email for auto-SSL when a custom domain is mapped. If unset, certbot is skipped and you must run it manually. |
+| `CERT_RENEW_INTERVAL_HOURS` | No | `12` | How often the portal runs `certbot renew` and reloads nginx. |
 
 ---
 
@@ -325,6 +346,14 @@ On success it regenerates the nginx block with HTTPS. If certbot fails or `CERTB
 ```
 youruser ALL=(ALL) NOPASSWD: /usr/bin/certbot
 ```
+
+### Automatic renewal
+
+The portal runs `sudo certbot renew` in the background every `CERT_RENEW_INTERVAL_HOURS` hours (default 12, first run ~2 minutes after startup). Certbot only renews certs within 30 days of expiry. When anything is renewed, the portal regenerates the nginx config and reloads nginx so the new cert is served immediately. Renewal results and failures appear in the dashboard's recent-activity log.
+
+For renewal to succeed, `/.well-known/acme-challenge/` must be reachable over plain HTTP — the generated server blocks serve it from `/var/www/html` before the HTTPS redirect, so no extra configuration is needed. (Installs generated before this feature should just restart the portal once so `projects.conf` is regenerated with the ACME location blocks.)
+
+**Exception:** certs obtained with `certbot --manual` (the fallback wildcard method in step 7) cannot be renewed by `certbot renew`. The portal logs a dashboard warning when any cert is expired or within 14 days of expiry so this doesn't go unnoticed — switch the wildcard cert to a DNS plugin to make it fully automatic.
 
 ### Existing installs — database migration
 
@@ -375,7 +404,13 @@ youruser ALL=(ALL) NOPASSWD: /usr/sbin/nginx -s reload
 ```
 
 **Project subdomain shows certificate error**
-The wildcard cert does not yet cover `*.yourdomain.com`. Run the `certbot certonly --manual --preferred-challenges dns` command in step 7, then set `WILDCARD_CERT_PATH` in `.env` and restart the portal.
+The wildcard cert does not yet cover `*.yourdomain.com`. Obtain one with the DNS-plugin command in step 7 (preferred — it auto-renews), then set `WILDCARD_CERT_PATH` in `.env` and restart the portal.
+
+**Project subdomains show an EXPIRED certificate**
+All project subdomains share the wildcard cert, and a wildcard obtained with `certbot --manual` cannot auto-renew — it hard-expires every 90 days. Renew it now by re-running the manual DNS-challenge command from step 7 (certbot renews the existing lineage, so `WILDCARD_CERT_PATH` stays the same), then `sudo nginx -s reload`. To stop this recurring, switch the wildcard cert to a certbot DNS plugin as described in step 7.
+
+**Custom domain shows an expired certificate**
+Restart the portal so the regenerated nginx config includes the ACME challenge location on port 80, then use **Refresh SSL** on the project page (or wait for the background renewal pass). Check the dashboard log for `[certbot]` errors — the usual causes are DNS no longer pointing at this server or port 80 blocked.
 
 ---
 

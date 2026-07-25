@@ -52,7 +52,13 @@ server {
     listen 80;
     listen [::]:80;
     server_name ${serverName};
-    return 301 https://$host$request_uri;
+    # ACME challenge must stay reachable over plain HTTP so certbot can renew
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+    location / {
+        return 301 https://$host$request_uri;
+    }
 }
 server {
     listen 443 ssl http2;
@@ -125,7 +131,13 @@ server {
     listen 80;
     listen [::]:80;
     server_name ${serverName};
-    return 301 https://$host$request_uri;
+    # ACME challenge must stay reachable over plain HTTP so certbot can renew
+    location /.well-known/acme-challenge/ {
+        root /var/www/html;
+    }
+    location / {
+        return 301 https://$host$request_uri;
+    }
 }
 server {
     listen 443 ssl http2;

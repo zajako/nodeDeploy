@@ -165,6 +165,7 @@ for (const key of PORTAL_PRIVATE_KEYS) delete process.env[key];
 // -------------------------------------------------------------------------
 const PORT = parseInt(process.env.PORT || '3000', 10);
 const { ensureConfExists, generateNginxConfig } = require('./services/nginxService');
+const { startCertRenewalScheduler } = require('./services/certRenewalService');
 
 app.listen(PORT, async () => {
   console.log(`NodeDeploy portal running on port ${PORT}`);
@@ -172,6 +173,8 @@ app.listen(PORT, async () => {
   // Sync nginx projects.conf with the database on every startup
   await ensureConfExists();
   await generateNginxConfig();
+  // Periodically renew Let's Encrypt certs and reload nginx
+  startCertRenewalScheduler();
 });
 
 module.exports = app;
