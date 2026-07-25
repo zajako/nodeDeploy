@@ -179,19 +179,23 @@ sudo certbot --nginx -d yourdomain.com -d www.yourdomain.com
 
 #### Wildcard cert for project subdomains (DNS challenge — required for wildcards)
 
-**Preferred: use a certbot DNS plugin so the wildcard cert auto-renews.** With a plugin, certbot can publish the DNS TXT record itself, so the portal's renewal scheduler keeps the cert current with no manual steps. Example for Cloudflare:
+**Preferred: use a certbot DNS plugin so the wildcard cert auto-renews.** With a plugin, certbot can publish the DNS TXT record itself, so the portal's renewal scheduler keeps the cert current with no manual steps. Example for DigitalOcean DNS (API token needs write access to domains):
 
 ```bash
-sudo apt install python3-certbot-dns-cloudflare
-# Create /root/.secrets/cloudflare.ini containing:
-#   dns_cloudflare_api_token = <token with Zone:DNS:Edit for your zone>
-sudo chmod 600 /root/.secrets/cloudflare.ini
-sudo certbot certonly --dns-cloudflare \
-  --dns-cloudflare-credentials /root/.secrets/cloudflare.ini \
+sudo apt install python3-certbot-dns-digitalocean
+sudo mkdir -p /root/.secrets
+# /root/.secrets/digitalocean.ini containing:
+#   dns_digitalocean_token = <API token>
+sudo chmod 600 /root/.secrets/digitalocean.ini
+sudo certbot certonly --dns-digitalocean \
+  --dns-digitalocean-credentials /root/.secrets/digitalocean.ini \
+  --dns-digitalocean-propagation-seconds 60 \
   -d yourdomain.com -d '*.yourdomain.com'
 ```
 
-Plugins exist for most providers (`python3-certbot-dns-route53`, `-google`, `-digitalocean`, ...). If your DNS provider has no plugin, [acme.sh](https://github.com/acmesh-official/acme.sh) supports many more via its DNS API mode.
+Verify auto-renewal works afterwards with `sudo certbot renew --dry-run`.
+
+Plugins exist for most providers (`python3-certbot-dns-cloudflare`, `-route53`, `-google`, ...). If your DNS provider has no plugin, [acme.sh](https://github.com/acmesh-official/acme.sh) supports many more via its DNS API mode. Note: add DNS records at whichever service your NS records point to (check with `dig -t ns yourdomain.com +short`) — records added at the registrar's dashboard have no effect if DNS is hosted elsewhere.
 
 **Fallback: manual DNS challenge (does NOT auto-renew):**
 
