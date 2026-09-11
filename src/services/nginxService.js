@@ -22,8 +22,11 @@ const WILDCARD_CERT_PATH = process.env.WILDCARD_CERT_PATH ||
 // -------------------------------------------------------------------------
 // Shared proxy location block used by both subdomain and custom-domain blocks
 // -------------------------------------------------------------------------
-function proxyLocation(port) {
-  return `    location / {
+function proxyLocation(port, name) {
+  // Optional per-project nginx overrides: nginx/extra/<name>.conf. The trailing glob
+  // means a project without one is skipped rather than being an nginx error.
+  const extra = name ? `    include ${NGINX_DIR}/extra/${name}.conf*;\n\n` : '';
+  return extra + `    location / {
         proxy_pass            http://127.0.0.1:${port};
         proxy_http_version    1.1;
         proxy_set_header      Upgrade           $http_upgrade;
@@ -43,7 +46,7 @@ function proxyLocation(port) {
 function serverBlock(project) {
   const { name, port } = project;
   const serverName = `${name}.${BASE_DOMAIN}`;
-  const location = proxyLocation(port);
+  const location = proxyLocation(port, name);
 
   if (WILDCARD_CERT_PATH) {
     return `
@@ -119,7 +122,7 @@ async function customDomainBlock(project) {
   if (!custom_domain) return '';
 
   const serverName = `${custom_domain} www.${custom_domain}`;
-  const location   = proxyLocation(port);
+  const location   = proxyLocation(port, name);
 
   const certDir = await findCertDir(custom_domain);
   const hasCert = certDir !== null;
