@@ -223,9 +223,15 @@ async function generateNginxConfig() {
 
     let body;
     if (projects.length) {
-      const blocks = await Promise.all(
-        projects.map(async (p) => serverBlock(p) + await customDomainBlock(p))
-      );
+      // Sequential, NOT Promise.all: customDomainBlock shells out to certbot, which takes a global lock. Two
+      // custom domains looked up at once make one of them fail with "Another instance of Certbot is already
+      // running", and findCertDir cannot tell that failure apart from "this domain has no cert" -- it returns
+      // null either way, so the domain is written out as an HTTP-only block and silently loses its working
+      // HTTPS config on the next regeneration. Seen for real: a dry run demoted tfogame.com, which has a valid
+      // cert and was serving HTTPS at that moment. Cert lookups are a handful of subprocesses on a path that
+      // only runs on deploy, so serialising them costs nothing worth having.
+      const blocks = [];
+      for (const p of projects) blocks.push(serverBlock(p) + await customDomainBlock(p));
       body = blocks.join('\n');
     } else {
       body = '# No projects registered yet\n';
